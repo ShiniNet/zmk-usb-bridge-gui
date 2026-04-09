@@ -39,7 +39,7 @@
 
 ### 1. PoC の完了ラインを固定する
 
-- [ ] `PoC の第一段階` をどこまでにするか決める
+- [x] `PoC の第一段階` をどこまでにするか決める
 
 決めること:
 - 最初の到達点を `状態表示まで`、`候補一覧まで`、`手動 pairing まで` のどこに置くか
@@ -58,9 +58,12 @@
 関連文書:
 - [`project-concept.md`](project-concept.md) の `Initial PoC Scope` と `Recommended PoC Sequence`
 
+現在の正本:
+- [`project-concept.md`](project-concept.md) の `Phase 1 Completion Line`
+
 ### 2. GUI と receiver の protocol v1 を定義する
 
-- [ ] `CDC ACM protocol v1` の最小仕様を決める
+- [x] `CDC ACM protocol v1` の最小仕様を決める
 
 決めること:
 - message format を `line-delimited JSON` で固定するか
@@ -82,9 +85,12 @@
 関連文書:
 - [`project-concept.md`](project-concept.md) の `Communication Model`
 
+現在の正本:
+- [`protocol-v1.md`](protocol-v1.md)
+
 ### 3. Candidate listing policy を固定する
 
-- [ ] 候補一覧の載せ方を決める
+- [x] 候補一覧の載せ方を決める
 
 決めること:
 - 一覧の上限件数
@@ -106,9 +112,12 @@
 関連文書:
 - [`project-concept.md`](project-concept.md) の `Candidate Listing Policy`
 
+現在の正本:
+- [`candidate-listing-policy.md`](candidate-listing-policy.md)
+
 ### 4. COM port 自動検出方式を決める
 
-- [ ] desktop app が receiver を見つける方法を固定する
+- [x] desktop app が receiver を見つける方法を固定する
 
 決めること:
 - `VID/PID 主体`、`hello 応答主体`、または併用のどれにするか
@@ -129,9 +138,12 @@
 関連文書:
 - [`project-concept.md`](project-concept.md) の `Current Assumptions` と `Communication Model`
 
+現在の正本:
+- [`desktop-app-foundation.md`](desktop-app-foundation.md) の `COM Port Detection Policy`
+
 ### 5. Desktop app 技術スタックを固定する
 
-- [ ] GUI 実装方式と配布方式を決める
+- [x] GUI 実装方式と配布方式を決める
 
 決めること:
 - 実装言語
@@ -150,9 +162,12 @@
 関連文書:
 - [`project-concept.md`](project-concept.md) の `Desktop App Direction`
 
+現在の正本:
+- [`desktop-app-foundation.md`](desktop-app-foundation.md) の `Technology Stack`
+
 ### 6. PoC の pass / fail 条件を決める
 
-- [ ] PoC の評価基準を固定する
+- [x] PoC の評価基準を固定する
 
 決めること:
 - `LaLapadGen2` が無改造で候補一覧に出ることを pass 条件に含めるか
@@ -170,6 +185,9 @@
 関連文書:
 - [`project-concept.md`](project-concept.md) の `Validation Needed` は論点一覧として使う
 - 正式な `pass / fail` 条件はこの item で固定し、後に `docs/validation/` へ移す
+
+現在の正本:
+- [`poc-evaluation.md`](poc-evaluation.md)
 
 ## Can Be Decided During PoC
 
@@ -211,5 +229,6 @@
 
 ## Next Discussion Target
 
-- 第一候補は `1. PoC の完了ラインを固定する`
-- ここが決まると、後続の protocol と UI 範囲を過不足なく詰めやすい
+- blocking item `1` から `6` までは完了
+- 次の着手候補は `desktop app skeleton` と `receiver 側 protocol stub` の実装開始
+- `Can Be Decided During PoC` の項目は、Phase 1 実装が立ち上がってから順次詰める

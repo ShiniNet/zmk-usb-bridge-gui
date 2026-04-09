@@ -11,6 +11,10 @@
 
 - `foundation/project-concept.md`: 別 project 化の理由、PoC 前提、初期アーキテクチャ、難易度見立て
 - `foundation/implementation-start-checklist.md`: 実装着手前に決める項目、着手順、完了条件の整理
+- `foundation/protocol-v1.md`: GUI と receiver の `CDC ACM protocol v1` 正本
+- `foundation/candidate-listing-policy.md`: 候補一覧へ載せる条件、上限、並び順、GUI 公開モデル
+- `foundation/desktop-app-foundation.md`: desktop app 技術スタック、COM port 自動検出、Windows 配布方針
+- `foundation/poc-evaluation.md`: PoC の pass / hold / fail 条件
 
 ## 読み方と記述ルール
 

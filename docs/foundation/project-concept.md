@@ -42,7 +42,39 @@
 
 ## Initial PoC Scope
 
-### Display
+### Phase 1 Completion Line
+
+- 第一段階のゴールは、`Windows desktop app から receiver を自動検出し、候補一覧に出た LaLapadGen2 を利用者選択で pairing / connect 開始でき、接続状態と接続先名を安定して確認できること` とする
+- ここでいう `PoC 完了` は **初期スコープの機能境界** を指し、品質評価や kill 判定の閾値は [`poc-evaluation.md`](poc-evaluation.md) を正本とする
+
+### Minimum Functional Set For PoC Complete
+
+- receiver と GUI の間で `hello`、`status snapshot`、`command ack / error` の最小往復が成立する
+- GUI から `scan_start` を実行し、候補一覧を手動更新できる
+- GUI が候補一覧から 1 件を選び、`pairing / connect` を開始できる
+- `idle / scanning / connecting / connected` の状態遷移と、接続先 keyboard 名を GUI で表示できる
+- GUI から `bond erase` を実行できる
+- 参照対象 `LaLapadGen2` 1 台で end-to-end 動作を確認できる
+
+### Deferred Until After Phase 1
+
+- `battery` 表示の有無や、未取得時の UI 表現
+- `modifier`、`last key`、`mouse button` の live 表示
+- 候補一覧の磨き込みを超える高度な candidate 評価や複数 keyboard の本格管理
+- `macOS / Linux` の利用性確認
+- UI の見た目の磨き込みや高度なログ表示
+
+### Bring-up Reference Environment
+
+- 初期 bring-up の参照 board は `Seeed XIAO nRF52840` とする
+- desktop app の参照環境は `Windows` とする
+- USB 構成の第一候補は `USB HID + CDC ACM(2 instance)` の composite device とする
+- これらは **実装開始用の参照前提** であり、この時点では正式固定仕様ではない
+- board や USB 構成を変更する場合も、まずは `LaLapadGen2 1 台で第一段階を成立させる` というゴールを優先する
+
+### Full Scope Reference
+
+- 以下は `Initial PoC` 全体で見据える表示・操作の全体像であり、`Phase 1` 完了条件そのものは `Minimum Functional Set For PoC Complete` を正とする
 
 - 現在の接続状態を表示できる
 - 接続中キーボード名を表示できる
@@ -69,6 +101,7 @@
 - 現行 `NoGUI` 版のような `allowlist` は GUI 版 PoC では使わない
 - 候補一覧は `receiver が自動接続するための内部候補` ではなく、`GUI で利用者に見せる候補` として扱う
 - 最終採用は `利用者選択` と `接続後 validation` の両方を通した相手だけに限定する
+- 詳細仕様は [`candidate-listing-policy.md`](candidate-listing-policy.md) を正本とする
 
 ## Communication Model
 
@@ -88,32 +121,32 @@
 ### Constraints
 
 - GUI との通信は `machine-readable` なメッセージ形式にする
-- 第一候補は `line-delimited JSON`
+- message format は `line-delimited JSON` で固定する
 - GUI 起動時には `hello` か `status snapshot` を返し、自動検出と初期同期をしやすくする
 - GUI から送る command には `request_id` を持たせ、`ack` と `error` は同じ `request_id` を返す
+- `protocol v1` の詳細仕様は [`protocol-v1.md`](protocol-v1.md) を正本とする
 
 ### Initial Message Examples
 
-- 以下の例には `receiver -> GUI` の event と `GUI -> receiver` の command を両方含む
-- ここでの例は `非網羅` であり、PoC 必須操作の全 command / event を列挙し切るものではない
+- 以下の例は `protocol v1` の代表例であり、詳細は [`protocol-v1.md`](protocol-v1.md) を参照する
 
 ```json
-{"type":"hello","product":"zmk-usb-bridge-gui","protocol_version":1}
-{"type":"state","value":"connected"}
-{"type":"peer","name":"LaLapadGen2"}
-{"type":"battery","percent":87}
-{"type":"modifiers","left_shift":true,"left_ctrl":false}
-{"type":"last_key","usage_name":"K","pressed":true}
-{"type":"mouse_buttons","left":false,"right":true,"middle":false}
-{"type":"scan_candidate","id":3,"name":"LaLapadGen2","has_hid":true,"keyboard_appearance":true}
+{"type":"hello","product":"zmk-usb-bridge-gui","protocol_version":1,"channel":"gui"}
+{"type":"status_snapshot","receiver_state":"idle","peer_name":null,"peer_address":null,"scan_in_progress":false,"candidate_generation":7,"candidate_count":0}
+{"type":"candidate_snapshot","candidate_generation":7,"candidates":[]}
 {"type":"command","request_id":16,"name":"scan_start"}
 {"type":"ack","request_id":16,"name":"scan_start","accepted":true}
-{"type":"command","request_id":17,"name":"connect_candidate","candidate_id":3}
+{"type":"event","name":"scan_started","candidate_generation":8}
+{"type":"event","name":"candidate_upsert","candidate_generation":8,"candidate":{"candidate_id":3,"ble_address":"E4:B6:69:12:34:56","display_name":"LaLapadGen2","connectable":true,"has_hid_service":true,"has_keyboard_appearance":true,"rssi":-49}}
+{"type":"event","name":"scan_complete","candidate_generation":8,"result":"ok","candidate_count":1}
+{"type":"command","request_id":17,"name":"connect_candidate","candidate_generation":8,"candidate_id":3}
 {"type":"ack","request_id":17,"name":"connect_candidate","accepted":true}
+{"type":"event","name":"connection_state","state":"connecting","peer_name":null,"peer_address":null}
+{"type":"event","name":"connection_state","state":"connected","peer_name":"LaLapadGen2","peer_address":"E4:B6:69:12:34:56"}
 {"type":"error","request_id":17,"name":"connect_candidate","code":"candidate_not_found","message":"candidate_id not found"}
 {"type":"command","request_id":18,"name":"bond_erase"}
 {"type":"ack","request_id":18,"name":"bond_erase","accepted":true}
-{"type":"scan_complete","scan_id":4,"candidate_count":3}
+{"type":"event","name":"bonds_cleared","cleared_count":1}
 ```
 
 ## Desktop App Direction
@@ -121,6 +154,7 @@
 - GUI は最初から豪華にせず、`状態表示 + 候補一覧 + 操作ボタン` の最小構成を優先する
 - 実装言語は PoC 速度を優先し、`Python + GUI toolkit` のような構成を許容する
 - ただし利用者体験を考え、PoC 段階から最終的に `EXE` 化しやすい構成を優先する
+- 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md) とする
 
 ## Firmware Direction
 
@@ -129,7 +163,7 @@
 - pairing scan 中に `最初の候補へ即 connect` する挙動は採らない
 - candidate cache は GUI 向けに公開できるモデルとして持つ
 - GUI からの `connect_candidate` を受けて初めて connect を開始する
-- 接続後 validation は `HIDS service`、`keyboard input report`、必要な report discovery の成立を通過条件にする
+- 接続後 validation は `HID service`、`keyboard input report`、必要な report discovery の成立を通過条件にする
 - bond 済みデバイスへの reconnect は firmware が自動処理する。GUI からの明示的な reconnect 指示は持たない
 - `LaLapadGen2` を参照対象にしつつも、設計上は将来の ZMK keyboard 一般化を阻害しない責務分割を保つ
 
@@ -189,16 +223,14 @@
 
 ## Open Questions
 
-- candidate 一覧の上限件数をいくつに置くか
-- `keyboard appearance` が無い機器を GUI 上でどう見せるか
-- COM port 自動検出を `VID/PID` 主体にするか、`hello` 応答主体にするか
 - battery の取得失敗や未取得を GUI 上でどう表現するか
-- desktop app の実装言語と EXE 化手順を何で固定するか
+- 解決済みの論点は [`candidate-listing-policy.md`](candidate-listing-policy.md) と [`desktop-app-foundation.md`](desktop-app-foundation.md) を正本とする
 
 ## Validation Needed
 
 - この節は `PoC で答えを出すべき問い` の一覧であり、正式な `pass / fail` 基準そのものではない
 - 正式な評価基準は [`implementation-start-checklist.md`](implementation-start-checklist.md) の item 6 で固め、後に `docs/validation/` へ昇格させる
+- `PoC` 評価基準の現時点の正本は [`poc-evaluation.md`](poc-evaluation.md) とする
 
 - `LaLapadGen2` を無改造で候補一覧表示し、手動選択 pairing まで到達できるか
 - `HID service + keyboard appearance` の候補絞り込みで誤候補がどの程度残るか
@@ -209,7 +241,4 @@
 
 ## Kill Criteria
 
-- `既存 ZMK keyboard 無改造` では候補絞り込みや pairing 成立が実用にならない
-- `CDC ACM` 導入で HID bridge の安定性や reconnect が悪化する
-- 候補一覧が広すぎて、GUI 操作の価値より誤操作リスクが上回る
-- `LaLapadGen2` 1 台固定でも、PoC の pairing / reconnect / 状態表示が安定しない
+- 正式な `fail / hold` 判定は [`poc-evaluation.md`](poc-evaluation.md) を正本とする
