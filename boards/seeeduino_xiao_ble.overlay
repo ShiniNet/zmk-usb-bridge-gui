@@ -1,0 +1,9 @@
+&zephyr_udc0 {
+    log_cdc_acm_uart: log_cdc_acm_uart {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+
+    gui_cdc_acm_uart: gui_cdc_acm_uart {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};

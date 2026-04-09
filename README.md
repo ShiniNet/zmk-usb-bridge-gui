@@ -24,3 +24,15 @@
 
 - 設計文書の入口: [docs/README.md](docs/README.md)
 - 基本構想: [docs/foundation/project-concept.md](docs/foundation/project-concept.md)
+
+## Desktop App Skeleton
+
+この repository には、実装立ち上げ用の最小 desktop app skeleton を含めています。
+
+- 起動: `python -m zmk_usb_bridge_gui gui`
+- 依存付き起動: `python -m zmk_usb_bridge_gui discover --probe`
+- Windows 配布用 build: `pyinstaller packaging/zmk-usb-bridge-gui.spec`
+
+`PySide6` と `pyserial` は optional dependency として扱っています。module import や protocol module の確認は
+依存が無くても行えます。GUI 実行には `gui` extra が必要で、serial discovery を CLI / GUI から使うには
+`serial` extra が必要です。

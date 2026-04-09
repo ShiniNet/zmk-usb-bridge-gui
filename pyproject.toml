@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zmk-usb-bridge-gui"
+version = "0.1.0"
+description = "Desktop app skeleton for the ZMK USB bridge GUI PoC"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+zmk-usb-bridge-gui = "zmk_usb_bridge_gui.cli:main"
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+serial = ["pyserial>=3.5"]
+# Keep the pip-facing extra and the uv dependency-group aligned on purpose.
+build = ["pyinstaller>=6.0"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+build = ["pyinstaller>=6.0"]
+dev = ["pytest>=8.0"]
