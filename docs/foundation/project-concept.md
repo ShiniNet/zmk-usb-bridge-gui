@@ -1,6 +1,6 @@
 # Project Concept
 
-## Goal
+## Document Purpose
 
 - `zmk-usb-bridge-gui` を `zmk-usb-bridge` とは別 project として立ち上げる前提を整理する
 - `Windows 優先の desktop GUI` から、receiver の状態表示と pairing 操作を行う `PoC` の成立条件を明文化する
@@ -9,19 +9,17 @@
 ## Positioning
 
 - 本 project は `NoGUI 1:1 bridge` の後継ではなく、`GUI 前提の別系統 receiver` として扱う
-- 現行 `zmk-usb-bridge` は `allowlist + 自動接続` を重視する reference として維持する
+- 現行 `zmk-usb-bridge` は `allowlist + 自動接続` を重視する reference として扱う
 - `zmk-usb-bridge-gui` は `候補一覧表示 + 利用者選択` を重視する
 - GUI は receiver 本体に載せる組み込み画面ではなく、`Windows desktop app` を第一候補とする
 - 初期 PoC は `Windows` を優先し、`macOS` と `Linux` は成立阻害がないかを後続評価とする
+- 両 project は firmware / build / deliverable を分けて扱う
 
 ## Current Assumptions
 
-- project 名は `zmk-usb-bridge-gui` を採用候補とする
+- project 名は `zmk-usb-bridge-gui` とする
 - 初期評価対象は `LaLapadGen2` の 1 台に絞る
 - `既存 ZMK キーボード無改造` を必須とする
-- GUI は `最低限の簡素な desktop app` を第一候補とする
-- GUI 配布物は、PoC の段階から `Windows EXE` を意識する
-- receiver と GUI の通信路は、PoC では `USB CDC ACM` を使う
 - GUI 側では receiver を `COM port 自動検出` する
 
 ## Problem / Value Hypothesis
@@ -49,7 +47,6 @@
 - GUI から候補一覧を再取得できる
 - GUI で選択した候補へ pairing / connect を開始できる
 - GUI から `bond erase` を実行できる
-- GUI から reconnect 相当の再試行を指示できる
 
 ## Candidate Listing Policy
 
@@ -70,9 +67,14 @@
 - receiver と desktop app の双方向通信を単純に構成しやすい
 - bring-up 時にログ確認もしやすい
 
+### CDC ACM Endpoint 構成
+
+- `GUI 用 channel` と `debug log` は **別々の CDC ACM endpoint** として分離する
+- GUI 用 endpoint: machine-readable なメッセージ交換専用
+- log 用 endpoint: human-readable なデバッグ出力専用
+
 ### Constraints
 
-- `GUI 用 protocol` と `debug log` は同一ストリームに混在させない
 - GUI との通信は `machine-readable` なメッセージ形式にする
 - 第一候補は `line-delimited JSON`
 - GUI 起動時には `hello` か `status snapshot` を返し、自動検出と初期同期をしやすくする
@@ -93,28 +95,19 @@
 
 ## Desktop App Direction
 
-- `Windows desktop app` を第一候補とする
 - GUI は最初から豪華にせず、`状態表示 + 候補一覧 + 操作ボタン` の最小構成を優先する
 - 実装言語は PoC 速度を優先し、`Python + GUI toolkit` のような構成を許容する
 - ただし利用者体験を考え、PoC 段階から最終的に `EXE` 化しやすい構成を優先する
-- `Web Serial` を使う案は補助候補に留め、第一候補にはしない
 
 ## Firmware Direction
 
-- receiver firmware は `zmk-usb-bridge` から責務を流用しつつも、`候補一覧 + 手動選択` 前提の設計を取る
+- receiver firmware は `zmk-usb-bridge` をリファレンスとして読みつつも、`候補一覧 + 手動選択` 前提の独立した設計を取る（fork ではなく新規実装）
 - pairing scan 中に `最初の候補へ即 connect` する挙動は採らない
 - candidate cache は GUI 向けに公開できるモデルとして持つ
 - GUI からの `connect_selected_candidate` を受けて初めて connect を開始する
 - 接続後 validation は `HIDS service`、`keyboard input report`、必要な report discovery の成立を通過条件にする
+- bond 済みデバイスへの reconnect は firmware が自動処理する。GUI からの明示的な reconnect 指示は持たない
 - `LaLapadGen2` を参照対象にしつつも、設計上は将来の ZMK keyboard 一般化を阻害しない責務分割を保つ
-
-## Difference From `zmk-usb-bridge`
-
-- `NoGUI` 版は `allowlist + 自動接続` を優先する
-- GUI 版は `allowlist なし + 候補一覧表示 + 手動選択` を優先する
-- `NoGUI` 版は最小 UI と単体運用を重視する
-- GUI 版は desktop app との連携を前提に利用者導線を作る
-- 両 project は firmware / build / deliverable を分けてよい
 
 ## Non-Goals For Initial PoC
 
@@ -172,4 +165,3 @@
 - `CDC ACM` 導入で HID bridge の安定性や reconnect が悪化する
 - 候補一覧が広すぎて、GUI 操作の価値より誤操作リスクが上回る
 - `LaLapadGen2` 1 台固定でも、PoC の pairing / reconnect / 状態表示が安定しない
-
