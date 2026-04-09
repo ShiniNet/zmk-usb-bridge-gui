@@ -28,6 +28,12 @@
 - GUI は `request_id` を GUI session 内で一意にする
 - `ack` は `command を受理した` ことを表し、処理完了そのものは後続の `event` で知らせる
 
+## Design Rationale
+
+- `candidate_generation` は `scan_start` ごとの candidate 集合を識別し、古い一覧を見た GUI からの `connect_candidate` を弾きやすくする
+- `candidate_snapshot + candidate_upsert` は、GUI 再起動直後の全量同期と scan 中の増分更新を同じ枠で扱いやすくする
+- `ack` を completion ではなく receipt に寄せることで、長めの BLE 処理を `event` へ切り出し、command 応答を単純に保つ
+
 ## Message Types
 
 ### `hello`
@@ -409,6 +415,12 @@ request:
 - `event(bonds_cleared)`
 - `status_snapshot`
 - `candidate_snapshot`
+
+generation ルール:
+
+- `candidate_generation` を新しく発行する契機は `scan_start` のみとする
+- `bond_erase` 後の `candidate_snapshot` は、直前 generation を維持したまま `candidates=[]` を返してよい
+- GUI は `bond_erase` の文脈では `bonds_cleared` を受けたうえで空 snapshot を初期化結果として扱う
 
 ## Initial Connection Sequence
 

@@ -18,6 +18,7 @@
 
 ## 読み方と記述ルール
 
+- 初めて読む場合は `foundation/project-concept.md` -> `foundation/implementation-start-checklist.md` -> 各正本 document の順を第一候補にする
 - まず全体前提を `foundation/` にまとめる
 - 既存 `zmk-usb-bridge` の設計との差分は、前提と理由が分かる形で明示する
 - 実装前に決め切れない点は `Open Questions` と `Validation Needed` に残す

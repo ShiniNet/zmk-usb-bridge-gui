@@ -152,7 +152,7 @@
 ## Desktop App Direction
 
 - GUI は最初から豪華にせず、`状態表示 + 候補一覧 + 操作ボタン` の最小構成を優先する
-- 実装言語は PoC 速度を優先し、`Python + GUI toolkit` のような構成を許容する
+- 実装言語は PoC 速度を優先し、`Python + PySide6` を第一実装とする
 - ただし利用者体験を考え、PoC 段階から最終的に `EXE` 化しやすい構成を優先する
 - 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md) とする
 
@@ -229,7 +229,6 @@
 ## Validation Needed
 
 - この節は `PoC で答えを出すべき問い` の一覧であり、正式な `pass / fail` 基準そのものではない
-- 正式な評価基準は [`implementation-start-checklist.md`](implementation-start-checklist.md) の item 6 で固め、後に `docs/validation/` へ昇格させる
 - `PoC` 評価基準の現時点の正本は [`poc-evaluation.md`](poc-evaluation.md) とする
 
 - `LaLapadGen2` を無改造で候補一覧表示し、手動選択 pairing まで到達できるか
