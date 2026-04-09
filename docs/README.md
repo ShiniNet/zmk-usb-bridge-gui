@@ -10,11 +10,11 @@
 プロジェクト全体で共有する前提、目標、PoC の境界、実装方針を置く。
 
 - `foundation/project-concept.md`: 別 project 化の理由、PoC 前提、初期アーキテクチャ、難易度見立て
+- `foundation/implementation-start-checklist.md`: 実装着手前に決める項目、着手順、完了条件の整理
 
-## 運用ルール
+## 読み方と記述ルール
 
 - まず全体前提を `foundation/` にまとめる
 - 既存 `zmk-usb-bridge` の設計との差分は、前提と理由が分かる形で明示する
 - 実装前に決め切れない点は `Open Questions` と `Validation Needed` に残す
 - PoC で確かめる事項と、MVP 以降で持ち越す事項を分けて書く
-
