@@ -117,6 +117,8 @@
 
 ### 9. Tests
 
+- test の投資判断と優先順位は [`testing-policy.md`](testing-policy.md) を正本とする
+- 本節は `Phase 1` で検討すべき test 候補一覧であり、現フェーズでは `少数の高価値 test を維持する` 方針を優先する
 - protocol parse / serialize の unit test を追加する
 - controller の state 遷移 test を追加する
 - `scan_start -> candidate_snapshot -> candidate_upsert -> scan_complete` の sequence test を追加する

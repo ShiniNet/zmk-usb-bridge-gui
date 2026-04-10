@@ -13,13 +13,14 @@
 - `foundation/protocol-v1.md`: GUI と receiver の `CDC ACM protocol v1` 正本
 - `foundation/candidate-listing-policy.md`: 候補一覧へ載せる条件、上限、並び順、GUI 公開モデル
 - `foundation/desktop-app-foundation.md`: desktop app 技術スタック、COM port 自動検出、Windows 配布方針
+- `foundation/testing-policy.md`: PoC フェーズにおけるテストの優先順位、追加基準、後回しにする範囲
 - `foundation/implementation-start-checklist.md`: DesktopApp Phase 1 の実装タスク、順序、レビュー観点
 - `foundation/poc-evaluation.md`: PoC の pass / hold / fail 条件
 
 ## 読み方と記述ルール
 
 - 初めて読む場合は `foundation/project-concept.md` を入口にし、必要な詳細は各正本 document を参照する
-- 典型的な読み順は `foundation/project-concept.md` -> `foundation/protocol-v1.md` -> `foundation/candidate-listing-policy.md` -> `foundation/desktop-app-foundation.md` -> `foundation/implementation-start-checklist.md` -> `foundation/poc-evaluation.md` とする
+- 典型的な読み順は `foundation/project-concept.md` -> `foundation/protocol-v1.md` -> `foundation/candidate-listing-policy.md` -> `foundation/desktop-app-foundation.md` -> `foundation/testing-policy.md` -> `foundation/implementation-start-checklist.md` -> `foundation/poc-evaluation.md` とする
 - まず全体前提を `foundation/` にまとめる
 - 既存 `zmk-usb-bridge` の設計との差分は、前提と理由が分かる形で明示する
 - 実装前に決め切れない点は `Open Questions` と `Validation Needed` に残す

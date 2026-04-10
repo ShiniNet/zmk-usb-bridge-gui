@@ -12,6 +12,7 @@
 - protocol の正本は [`protocol-v1.md`](protocol-v1.md)
 - candidate 評価と GUI 公開モデルの正本は [`candidate-listing-policy.md`](candidate-listing-policy.md)
 - desktop app 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md)
+- テスト投資の優先順位と追加基準の正本は [`testing-policy.md`](testing-policy.md)
 - DesktopApp の実装着手用 checklist は [`implementation-start-checklist.md`](implementation-start-checklist.md)
 - `PoC` の `pass / hold / fail` 条件の正本は [`poc-evaluation.md`](poc-evaluation.md)
 

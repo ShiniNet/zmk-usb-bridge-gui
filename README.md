@@ -24,6 +24,7 @@
 
 - 設計文書の入口: [docs/README.md](docs/README.md)
 - 基本構想: [docs/foundation/project-concept.md](docs/foundation/project-concept.md)
+- テスト方針: [docs/foundation/testing-policy.md](docs/foundation/testing-policy.md)
 
 ## Desktop App Skeleton
 
