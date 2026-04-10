@@ -26,7 +26,8 @@
 
 - 検出方式は `VID/PID prefilter + hello 応答確認` の併用とする
 - まず `pyserial` の port 列挙で receiver 想定 `VID/PID` を持つ USB serial port を候補にする
-- PoC で使う具体的な `VID/PID` は receiver firmware の USB descriptor を正式化した時点で追記する。それまでは `firmware 側設定と同じ値を app 側の参照設定へ写す` 前提で扱う
+- PoC で使う receiver の `VID/PID` は `0x2FE3:0x0012` とする
+- desktop app 側の `VID/PID` prefilter は receiver firmware の `prj.conf` と同じ値を参照する
 - 次に各候補 port を短時間 open し、`protocol v1` の `hello` を待つ
 - `hello.channel=gui` を返した port だけを GUI 制御用 port として採用する
 

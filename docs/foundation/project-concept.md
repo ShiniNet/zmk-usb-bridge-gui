@@ -5,7 +5,14 @@
 - `zmk-usb-bridge-gui` を `zmk-usb-bridge` とは別 project として立ち上げる前提を整理する
 - `Windows 優先の desktop GUI` から、receiver の状態表示と pairing 操作を行う `PoC` の成立条件を明文化する
 - `既存 ZMK BLE keyboard 無改造` を維持したまま、`一覧表示 + 手動選択 pairing` が現実的かを見極める
-- 実装着手前の意思決定項目は [`implementation-start-checklist.md`](implementation-start-checklist.md) で管理する
+- 詳細仕様は `foundation/` 配下の正本 document に分けて管理する
+
+## Canonical Documents
+
+- protocol の正本は [`protocol-v1.md`](protocol-v1.md)
+- candidate 評価と GUI 公開モデルの正本は [`candidate-listing-policy.md`](candidate-listing-policy.md)
+- desktop app 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md)
+- `PoC` の `pass / hold / fail` 条件の正本は [`poc-evaluation.md`](poc-evaluation.md)
 
 ## Project Boundary
 
@@ -70,6 +77,7 @@
 - desktop app の参照環境は `Windows` とする
 - USB 構成の第一候補は `USB HID + CDC ACM(2 instance)` の composite device とする
 - これらは **実装開始用の参照前提** であり、この時点では正式固定仕様ではない
+- firmware 観点の補足と理由は `Initial Firmware Bring-up Assumptions` を参照する
 - board や USB 構成を変更する場合も、まずは `LaLapadGen2 1 台で第一段階を成立させる` というゴールを優先する
 
 ### Full Scope Reference
@@ -179,11 +187,10 @@
 - candidate cache は `固定長 array` かそれに準じる単純構造を第一候補にする
 - cache の最小 field は `candidate_id`、`BLE address`、`local name`、`connectable`、`has_hid_service`、`has_keyboard_appearance`、`last_seen`、`RSSI` を想定する
 - cache は `GUI 表示用の snapshot source` と `connect_candidate` 実行時の `lookup source` を兼ねる
-- ここでの前提は実装着手の足場であり、正式化の受け先は checklist 側で分担する
-- `参照 board / bring-up target` は [`implementation-start-checklist.md`](implementation-start-checklist.md) の item 1 で扱う
-- `protocol と command / event` は [`implementation-start-checklist.md`](implementation-start-checklist.md) の item 2 で扱う
-- `candidate cache の GUI 公開モデル` は [`implementation-start-checklist.md`](implementation-start-checklist.md) の item 3 で扱う
-- `GUI/log CDC instance と COM port 識別` は [`implementation-start-checklist.md`](implementation-start-checklist.md) の item 4 で扱う
+- ここでの前提は実装着手の足場であり、正式仕様は各正本 document に従う
+- `protocol と command / event` は [`protocol-v1.md`](protocol-v1.md) を正本とする
+- `candidate cache の GUI 公開モデル` は [`candidate-listing-policy.md`](candidate-listing-policy.md) を正本とする
+- `GUI/log CDC instance` と `COM port` 識別は [`desktop-app-foundation.md`](desktop-app-foundation.md) を正本とする
 
 ## Non-Goals For Initial PoC
 
@@ -211,19 +218,24 @@
 
 ## Recommended PoC Sequence
 
-- 実装前に決める論点の順序は [`implementation-start-checklist.md`](implementation-start-checklist.md) の `Recommended Order` を正とする
-- この節は `実装の進め方`、checklist 側は `実装前に固定する判断順` を表す
+- 実装時は次の順を第一候補とする
+- `Phase 1 必須機能の成立 -> PoC 評価 -> deferred 項目の拡張` の順で進める
 
 1. `CDC ACM` の GUI 用双方向 channel を用意する
 2. `hello / status snapshot / command ack` の最小 protocol を定義する
-3. 接続状態、keyboard 名、modifier、直近キー、mouse button を GUI 表示できるようにする
+3. 接続状態と接続先 keyboard 名を GUI 表示できるようにする
 4. candidate cache を GUI 向けに公開し、一覧表示を成立させる
 5. GUI から選択した候補への pairing / connect を成立させる
-6. battery 表示を追加し、未取得時の UI 表現を詰める
+6. `bond erase` と再初期化の一連の操作を成立させ、`PoC Phase 1` を評価する
+7. `battery` 表示や未取得時 UI を追加する
+8. `modifier`、直近キー、mouse button などの live telemetry を拡張する
 
 ## Open Questions
 
 - battery の取得失敗や未取得を GUI 上でどう表現するか
+
+### Resolved References
+
 - 解決済みの論点は [`candidate-listing-policy.md`](candidate-listing-policy.md) と [`desktop-app-foundation.md`](desktop-app-foundation.md) を正本とする
 
 ## Validation Needed

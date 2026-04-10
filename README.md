@@ -3,9 +3,9 @@
 `zmk-usb-bridge-gui` は、`zmk-usb-bridge` とは別 project として進める
 `Windows 優先の GUI 付き ZMK BLE keyboard receiver` 構想です。
 
-現時点では、`LaLapadGen2` を参照キーボードとする `PoC` の前提整理を主目的とします。
+現時点では、`LaLapadGen2` を参照キーボードとする `PoC` の実装と前提整理を進めています。
 既存の `NoGUI` bridge に GUI を積み増すのではなく、`候補一覧表示 + 手動選択 pairing + 状態可視化`
-を前提とした別 project として検討します。
+を前提とした別 project として実装を進めます。
 
 `zmk-usb-bridge-gui` は `ZMK keyboard firmware project` ではなく、
 `receiver 側 firmware + desktop app` を扱う **独立した Zephyr project** です。
@@ -27,7 +27,7 @@
 
 ## Desktop App Skeleton
 
-この repository には、実装立ち上げ用の最小 desktop app skeleton を含めています。
+この repository には、現在の PoC 実装の土台として使っている最小 desktop app skeleton を含めています。
 
 - 起動: `python -m zmk_usb_bridge_gui gui`
 - 依存付き起動: `python -m zmk_usb_bridge_gui discover --probe`
