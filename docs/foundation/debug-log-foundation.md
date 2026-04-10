@@ -240,6 +240,8 @@
 - `receiver debug reader` は `現在 attach 済みの receiver identity` に従属する
 - GUI が `receiver attached` になった後にだけ debug port 探索を始める
 - `receiver debug port` が見つからなくても GUI 機能は block しない
+- current desktop app 実装では、Windows 実機で sibling CDC port の open が GUI session を不安定化させる観測があるため、`receiver debug auto-attach` は既定で無効としてよい
+- 上記の間も `receiver debug` 自体は補助観測であり、GUI 制御 port の attach / session 維持を優先する
 - receiver debug port 候補の選定では、すでに attach 済みの `GUI protocol port` を必ず除外する
 - 同一 receiver identity に属する sibling port が、GUI port を除外した後にちょうど `1 件` だけ残る場合にその port を採用してよい
 - sibling port が `0 件` または `2 件以上` 残る場合は attach を行わず、`receiver_debug_attach_skipped` を記録する

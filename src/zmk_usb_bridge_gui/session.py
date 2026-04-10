@@ -78,6 +78,17 @@ class SerialSession:
             )
         except Exception as exc:  # pragma: no cover - depends on OS serial stack.
             raise SessionOpenError(f"Could not open receiver port {device}: {exc}") from exc
+        if hasattr(serial_port, "reset_input_buffer"):
+            try:
+                serial_port.reset_input_buffer()
+            except Exception:
+                pass
+        if hasattr(serial_port, "dtr"):
+            try:
+                # Firmware gates the GUI channel on DTR, so assert it before the reader starts.
+                serial_port.dtr = True
+            except Exception:
+                pass
         self.device = device
         self._serial = serial_port
         self._stop_event.clear()
@@ -173,9 +184,9 @@ class SerialSession:
                 return
 
             try:
+                # pyserial flush() can block badly on some CDC ACM ports; write() is enough
+                # for these short line-delimited commands.
                 serial_port.write(payload)
-                if hasattr(serial_port, "flush"):
-                    serial_port.flush()
             except Exception as exc:  # pragma: no cover - depends on OS serial stack.
                 if not self._stop_event.is_set():
                     self._stop_event.set()

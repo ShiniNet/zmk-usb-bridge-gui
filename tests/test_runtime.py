@@ -360,6 +360,35 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual(sessions[0].sent_messages, [])
 
+    def test_scan_timeout_without_ack_triggers_refresh_recovery(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [make_candidate("COM5")],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+
+        runtime.scan_start()
+        self.assertEqual([message.name for message in sessions[0].sent_messages], ["scan_start"])
+
+        clock.now += 13.0
+        runtime.tick()
+
+        self.assertEqual(
+            [message.name for message in sessions[0].sent_messages],
+            ["scan_start", "get_status", "get_candidates"],
+        )
+        self.assertIn("receiver response", runtime.state.last_error or "")
+
     def test_reconnect_discovery_reuses_preferred_identity(self) -> None:
         clock = FakeClock()
         configs = []
@@ -407,6 +436,7 @@ class RuntimeTests(unittest.TestCase):
             session_factory=FakeSession,
             text_log_reader_factory=FakeTextLogReader,
             time_fn=clock,
+            auto_attach_receiver_debug=True,
         )
 
         self._wait_until(runtime, lambda: runtime.state.attached)
@@ -429,6 +459,7 @@ class RuntimeTests(unittest.TestCase):
             session_factory=FakeSession,
             text_log_reader_factory=FakeTextLogReader,
             time_fn=clock,
+            auto_attach_receiver_debug=True,
         )
 
         self._wait_until(runtime, lambda: runtime.state.attached)
@@ -438,6 +469,29 @@ class RuntimeTests(unittest.TestCase):
         skip_events = [event for event in capture.lifecycle_events if event[1] == "receiver_debug_attach_skipped"]
         self.assertEqual(len(skip_events), 1)
         self.assertIn("multiple receiver debug sibling ports", skip_events[0][3] or "")
+
+    def test_receiver_debug_auto_attach_is_disabled_by_default(self) -> None:
+        clock = FakeClock()
+        ports = [
+            SerialPortInfo(device="COM5", vid=0x2FE3, pid=0x0012, serial_number="abc123", location="usb-1"),
+            SerialPortInfo(device="COM6", vid=0x2FE3, pid=0x0012, serial_number="abc123", location="usb-1"),
+        ]
+        runtime, capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [make_candidate("COM5", serial_number="abc123", location="usb-1")],
+            list_ports=lambda: ports,
+            session_factory=FakeSession,
+            text_log_reader_factory=FakeTextLogReader,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+        runtime.tick()
+
+        self.assertIsNone(runtime.state.receiver_debug_port)
+        self.assertNotIn(("receiver", "receiver_debug_attach_started", None, None, None), capture.lifecycle_events)
+        skip_events = [event for event in capture.lifecycle_events if event[1] == "receiver_debug_attach_skipped"]
+        self.assertEqual(len(skip_events), 1)
+        self.assertIn("auto-attach is disabled", skip_events[0][3] or "")
 
     def test_manual_keyboard_log_attach_updates_state_and_records_lifecycle(self) -> None:
         clock = FakeClock()

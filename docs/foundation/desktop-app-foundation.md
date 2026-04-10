@@ -30,8 +30,9 @@
 - PoC で使う receiver の `VID/PID` は `0x2FE3:0x0012` とする
 - desktop app 側の `VID/PID` prefilter は receiver firmware の `prj.conf` と同じ値を参照する
 - 次に各候補 port を短時間 open し、`protocol v1` の `hello` を待つ
-- `hello` probe の待ち時間は `PoC Phase 1` では `0.4 秒` を既定値とし、応答が無ければその probe では非 GUI port とみなしてよい
-- receiver 側が port open 直後に `hello` を送る前提を置き、`0.4 秒` で不足する観測が出た場合だけ firmware / app のどちらを調整するかを再評価する
+- `hello` probe の待ち時間は current 実機観測を踏まえ、`PoC Phase 1` では `1.0 秒` を既定値とする
+- `DTR` 立ち上がり直後の boot snapshot を待つ短い受信優先フェーズを設け、それでも応答が無ければ `get_status` probe を送ってよい
+- sibling CDC port の close が OS 側で長時間 block する観測があるため、desktop app は `probe timeout` を discovery 全体の上限として扱い、1 port の異常で探索全体が数十秒止まらないことを優先する
 - `hello.channel=gui` を返した port だけを GUI 制御用 port として採用する
 
 ### GUI CDC と Log CDC の識別
@@ -77,6 +78,7 @@
 - desktop app は必要に応じて `GUI app event`、`receiver GUI protocol`、`receiver debug serial`、`keyboard debug serial` を同時収集してよい
 - ただし `GUI protocol port` を log capture のために別 open してはならない
 - `receiver debug port` と `keyboard debug port` は GUI 制御 port とは別 reader として扱う
+- Windows 実機で `receiver debug` sibling port の open が GUI session を不安定化させる間は、receiver debug の自動 attach を既定で無効としてよい
 - log record の schema、保存形式、session 単位の運用は [`debug-log-foundation.md`](debug-log-foundation.md) を正本とする
 
 ## Current Phase 1 Desktop App Contract

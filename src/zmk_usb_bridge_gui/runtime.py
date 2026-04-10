@@ -49,6 +49,7 @@ class AppRuntime:
         time_fn: Callable[[], float] = time.monotonic,
         discovery_config: DiscoveryConfig | None = None,
         scan_watchdog_timeout_s: float = 12.0,
+        auto_attach_receiver_debug: bool = False,
     ) -> None:
         self._discover_ports = discover_ports
         self._list_ports = list_ports
@@ -56,6 +57,7 @@ class AppRuntime:
         self._text_log_reader_factory = text_log_reader_factory
         self._time_fn = time_fn
         self._scan_watchdog_timeout_s = scan_watchdog_timeout_s
+        self._auto_attach_receiver_debug = auto_attach_receiver_debug
         self._discovery_config = discovery_config or DiscoveryConfig(
             vid_pid_allowlist=DEFAULT_RECEIVER_VID_PID_ALLOWLIST,
             baudrate=DEFAULT_BAUDRATE,
@@ -89,7 +91,7 @@ class AppRuntime:
         self._drain_capture_errors()
 
         if self.controller.expire_scan_watchdog(self._scan_watchdog_timeout_s):
-            self.refresh()
+            self.refresh(clear_last_error=False)
 
         self._sync_receiver_debug_reader()
 
@@ -115,11 +117,12 @@ class AppRuntime:
         self._emit_app_event("retry_discovery_requested", "lifecycle", None, None)
         self._next_discovery_at = 0.0
 
-    def refresh(self) -> None:
+    def refresh(self, *, clear_last_error: bool = True) -> None:
         if not self.state.can_refresh:
             return
         self._emit_app_event("refresh_requested", "lifecycle", None, None)
-        self.controller.clear_last_error_for_user_action()
+        if clear_last_error:
+            self.controller.clear_last_error_for_user_action()
         self._send_command("get_status")
         self._send_command("get_candidates")
 
@@ -411,6 +414,10 @@ class AppRuntime:
             self._receiver_debug_skip_logged = False
             self._receiver_debug_retry_at = 0.0
             self.state.receiver_debug_port = None
+
+        if not self._auto_attach_receiver_debug:
+            self._log_receiver_debug_attach_skipped("receiver debug auto-attach is disabled")
+            return
 
         if self._receiver_debug_reader is not None or self._time_fn() < self._receiver_debug_retry_at:
             return

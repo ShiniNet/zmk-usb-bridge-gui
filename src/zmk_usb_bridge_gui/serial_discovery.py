@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from queue import Empty, SimpleQueue
+from threading import Thread
 from typing import Callable
 from typing import Sequence
 
@@ -18,7 +20,9 @@ from .protocol import (
 )
 
 DEFAULT_BAUDRATE = 115200
-DEFAULT_PROBE_TIMEOUT_S = 0.4
+DEFAULT_PROBE_TIMEOUT_S = 1.0
+DEFAULT_PASSIVE_HELLO_GRACE_S = 0.35
+DEFAULT_GUI_READY_DIAGNOSTIC_TIMEOUT_S = 0.6
 
 
 class SerialDiscoveryError(RuntimeError):
@@ -64,6 +68,313 @@ class GuiProtocolProbeResult:
     hello: HelloMessage | None = None
     protocol_verified: bool = False
     verified_via: str | None = None
+
+
+@dataclass(slots=True)
+class GuiReadyDiagnosticResult:
+    observed: bool = False
+    completed: bool = False
+    detail: str | None = None
+
+
+def _update_probe_result_from_message(
+    result: GuiProtocolProbeResult,
+    message: object,
+) -> GuiProtocolProbeResult:
+    if isinstance(message, HelloMessage):
+        return GuiProtocolProbeResult(
+            hello=message,
+            protocol_verified=True,
+            verified_via="hello",
+        )
+    if isinstance(message, StatusSnapshot):
+        if not result.protocol_verified:
+            return GuiProtocolProbeResult(
+                protocol_verified=True,
+                verified_via="status_snapshot",
+            )
+        return result
+    if isinstance(message, CandidateSnapshot):
+        if not result.protocol_verified:
+            return GuiProtocolProbeResult(
+                protocol_verified=True,
+                verified_via="candidate_snapshot",
+            )
+        return result
+    if isinstance(message, AckMessage) and message.request_id == 0 and message.name == "get_status":
+        if not result.protocol_verified:
+            return GuiProtocolProbeResult(protocol_verified=True, verified_via="ack")
+        return result
+    if isinstance(message, ErrorMessage) and message.request_id == 0 and message.name == "get_status":
+        if not result.protocol_verified:
+            return GuiProtocolProbeResult(protocol_verified=True, verified_via="error")
+        return result
+    return result
+
+
+def _read_probe_messages_until(
+    serial_port: object,
+    *,
+    deadline: float,
+    fallback_result: GuiProtocolProbeResult,
+) -> GuiProtocolProbeResult:
+    result = fallback_result
+    while time.monotonic() < deadline:
+        raw_line = serial_port.readline()
+        if not raw_line:
+            continue
+        try:
+            message = parse_message_line(raw_line.decode("utf-8", errors="replace"))
+        except ProtocolParseError:
+            continue
+        result = _update_probe_result_from_message(result, message)
+        if result.hello is not None:
+            return result
+    return result
+
+
+def _probe_gui_protocol_on_open_port(
+    serial_port: object,
+    *,
+    timeout_s: float,
+) -> GuiProtocolProbeResult:
+    deadline = time.monotonic() + timeout_s
+    passive_deadline = min(
+        deadline,
+        time.monotonic() + min(DEFAULT_PASSIVE_HELLO_GRACE_S, max(timeout_s * 0.5, 0.01)),
+    )
+    probe_command = serialize_message_line(CommandMessage(request_id=0, name="get_status")).encode("utf-8")
+    fallback_result = GuiProtocolProbeResult()
+
+    if hasattr(serial_port, "reset_input_buffer"):
+        try:
+            serial_port.reset_input_buffer()
+        except Exception:
+            pass
+    if hasattr(serial_port, "dtr"):
+        try:
+            serial_port.dtr = True
+        except Exception:
+            pass
+
+    result = _read_probe_messages_until(
+        serial_port,
+        deadline=passive_deadline,
+        fallback_result=fallback_result,
+    )
+    if result.hello is not None:
+        return result
+
+    try:
+        # Some sibling CDC ports do not consume host writes reliably; avoid flush()
+        # here so a bad probe cannot stall discovery for tens of seconds.
+        serial_port.write(probe_command)
+    except Exception:
+        pass
+
+    return _read_probe_messages_until(
+        serial_port,
+        deadline=deadline,
+        fallback_result=result,
+    )
+
+
+def _probe_gui_protocol_worker(
+    result_queue: SimpleQueue[GuiProtocolProbeResult],
+    *,
+    device: str,
+    baudrate: int,
+    timeout_s: float,
+    serial_factory: Callable[..., object],
+) -> None:
+    per_read_timeout_s = min(timeout_s, 0.1)
+    serial_port = None
+    try:
+        serial_port = serial_factory(
+            port=device,
+            baudrate=baudrate,
+            timeout=per_read_timeout_s,
+            write_timeout=per_read_timeout_s,
+        )
+        result = _probe_gui_protocol_on_open_port(serial_port, timeout_s=timeout_s)
+    except Exception:
+        result = GuiProtocolProbeResult()
+    result_queue.put(result)
+    if serial_port is not None:
+        try:
+            serial_port.close()
+        except Exception:
+            pass
+
+
+def _group_receiver_candidates_by_identity(
+    candidates: list[ReceiverPortCandidate],
+) -> dict[tuple[str, str], list[ReceiverPortCandidate]]:
+    groups: dict[tuple[str, str], list[ReceiverPortCandidate]] = {}
+    for candidate in candidates:
+        if not candidate.vid_pid_match:
+            continue
+        identity_key = _probe_identity_key(candidate.port)
+        if identity_key is None:
+            continue
+        groups.setdefault(identity_key, []).append(candidate)
+    return groups
+
+
+def diagnose_gui_port_via_receiver_log(
+    gui_device: str,
+    log_device: str,
+    *,
+    baudrate: int = DEFAULT_BAUDRATE,
+    timeout_s: float = DEFAULT_GUI_READY_DIAGNOSTIC_TIMEOUT_S,
+    serial_factory: Callable[..., object] | None = None,
+) -> GuiReadyDiagnosticResult:
+    Serial = serial_factory or _load_serial()
+    result_queue: SimpleQueue[GuiReadyDiagnosticResult] = SimpleQueue()
+    worker = Thread(
+        target=_diagnose_gui_port_via_receiver_log_worker,
+        kwargs={
+            "result_queue": result_queue,
+            "gui_device": gui_device,
+            "log_device": log_device,
+            "baudrate": baudrate,
+            "timeout_s": timeout_s,
+            "serial_factory": Serial,
+        },
+        name=f"gui-ready-diagnostic-{gui_device}",
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=timeout_s + 0.15)
+    try:
+        return result_queue.get_nowait()
+    except Empty:
+        return GuiReadyDiagnosticResult(completed=False, detail="diagnostic timed out")
+
+
+def _diagnose_gui_port_via_receiver_log_worker(
+    result_queue: SimpleQueue[GuiReadyDiagnosticResult],
+    *,
+    gui_device: str,
+    log_device: str,
+    baudrate: int = DEFAULT_BAUDRATE,
+    timeout_s: float = DEFAULT_GUI_READY_DIAGNOSTIC_TIMEOUT_S,
+    serial_factory: Callable[..., object],
+) -> None:
+    Serial = serial_factory
+    per_read_timeout_s = min(timeout_s, 0.1)
+    log_serial = None
+    gui_serial = None
+    try:
+        log_serial = Serial(
+            port=log_device,
+            baudrate=baudrate,
+            timeout=per_read_timeout_s,
+            write_timeout=per_read_timeout_s,
+        )
+        gui_serial = Serial(
+            port=gui_device,
+            baudrate=baudrate,
+            timeout=per_read_timeout_s,
+            write_timeout=per_read_timeout_s,
+        )
+        for serial_port in (log_serial, gui_serial):
+            if hasattr(serial_port, "reset_input_buffer"):
+                try:
+                    serial_port.reset_input_buffer()
+                except Exception:
+                    pass
+        if hasattr(log_serial, "dtr"):
+            try:
+                log_serial.dtr = True
+            except Exception:
+                pass
+        if hasattr(gui_serial, "dtr"):
+            try:
+                gui_serial.dtr = True
+            except Exception:
+                pass
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            raw_line = log_serial.readline()
+            if not raw_line:
+                continue
+            decoded = raw_line.decode("utf-8", errors="replace").strip()
+            if "gui channel ready" in decoded.lower():
+                result_queue.put(GuiReadyDiagnosticResult(observed=True, completed=True))
+                return
+        result_queue.put(GuiReadyDiagnosticResult(observed=False, completed=True))
+    except Exception as exc:
+        result_queue.put(
+            GuiReadyDiagnosticResult(
+                observed=False,
+                completed=True,
+                detail=f"{exc.__class__.__name__}: {exc}",
+            )
+        )
+    finally:
+        for serial_port in (gui_serial, log_serial):
+            if serial_port is None:
+                continue
+            try:
+                serial_port.close()
+            except Exception:
+                pass
+
+
+def _apply_gui_ready_diagnostic(
+    candidates: list[ReceiverPortCandidate],
+    *,
+    config: DiscoveryConfig,
+    trace_fn: Callable[[str, dict[str, object]], None] | None,
+    serial_factory: Callable[..., object] | None = None,
+) -> None:
+    candidate_groups = _group_receiver_candidates_by_identity(candidates)
+    for group in candidate_groups.values():
+        if len(group) != 2:
+            continue
+        if any(candidate.protocol_verified or candidate.hello_verified for candidate in group):
+            continue
+
+        diagnostic_hits: list[ReceiverPortCandidate] = []
+        for gui_candidate in group:
+            log_candidate = next(item for item in group if item is not gui_candidate)
+            if trace_fn is not None:
+                trace_fn(
+                    "discovery_gui_ready_diagnostic_started",
+                    {
+                        "gui_probe_device": gui_candidate.port.device,
+                        "log_monitor_device": log_candidate.port.device,
+                        "timeout_s": DEFAULT_GUI_READY_DIAGNOSTIC_TIMEOUT_S,
+                    },
+                )
+            started_at = time.monotonic()
+            observed = diagnose_gui_port_via_receiver_log(
+                gui_candidate.port.device,
+                log_candidate.port.device,
+                baudrate=config.baudrate,
+                timeout_s=DEFAULT_GUI_READY_DIAGNOSTIC_TIMEOUT_S,
+                serial_factory=serial_factory,
+            )
+            if trace_fn is not None:
+                trace_fn(
+                    "discovery_gui_ready_diagnostic_finished",
+                    {
+                        "gui_probe_device": gui_candidate.port.device,
+                        "log_monitor_device": log_candidate.port.device,
+                        "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+                        "gui_ready_observed": observed.observed,
+                        "diagnostic_completed": observed.completed,
+                        "diagnostic_detail": observed.detail,
+                    },
+                )
+            if observed.observed:
+                diagnostic_hits.append(gui_candidate)
+
+        if len(diagnostic_hits) == 1:
+            diagnostic_hits[0].protocol_verified = True
+            diagnostic_hits[0].protocol_verified_via = "gui_ready_diagnostic"
 
 
 def _load_list_ports():
@@ -146,66 +457,25 @@ def probe_gui_protocol(
     """Attempt to verify that a port speaks the GUI protocol."""
 
     Serial = serial_factory or _load_serial()
-    per_read_timeout_s = min(timeout_s, 0.1)
-    deadline = time.monotonic() + timeout_s
-    probe_command = serialize_message_line(CommandMessage(request_id=0, name="get_status")).encode("utf-8")
-    fallback_result = GuiProtocolProbeResult()
-
-    with Serial(port=device, baudrate=baudrate, timeout=per_read_timeout_s, write_timeout=per_read_timeout_s) as serial_port:
-        if hasattr(serial_port, "dtr"):
-            try:
-                serial_port.dtr = True
-            except Exception:
-                pass
-        if hasattr(serial_port, "reset_input_buffer"):
-            try:
-                serial_port.reset_input_buffer()
-            except Exception:
-                pass
-        try:
-            serial_port.write(probe_command)
-            if hasattr(serial_port, "flush"):
-                serial_port.flush()
-        except Exception:
-            pass
-
-        while time.monotonic() < deadline:
-            raw_line = serial_port.readline()
-            if not raw_line:
-                continue
-            try:
-                message = parse_message_line(raw_line.decode("utf-8", errors="replace"))
-            except ProtocolParseError:
-                continue
-            if isinstance(message, HelloMessage):
-                return GuiProtocolProbeResult(
-                    hello=message,
-                    protocol_verified=True,
-                    verified_via="hello",
-                )
-            if isinstance(message, StatusSnapshot):
-                if not fallback_result.protocol_verified:
-                    fallback_result = GuiProtocolProbeResult(
-                        protocol_verified=True,
-                        verified_via="status_snapshot",
-                    )
-                continue
-            if isinstance(message, CandidateSnapshot):
-                if not fallback_result.protocol_verified:
-                    fallback_result = GuiProtocolProbeResult(
-                        protocol_verified=True,
-                        verified_via="candidate_snapshot",
-                    )
-                continue
-            if isinstance(message, AckMessage) and message.request_id == 0 and message.name == "get_status":
-                if not fallback_result.protocol_verified:
-                    fallback_result = GuiProtocolProbeResult(protocol_verified=True, verified_via="ack")
-                continue
-            if isinstance(message, ErrorMessage) and message.request_id == 0 and message.name == "get_status":
-                if not fallback_result.protocol_verified:
-                    fallback_result = GuiProtocolProbeResult(protocol_verified=True, verified_via="error")
-                continue
-    return fallback_result
+    result_queue: SimpleQueue[GuiProtocolProbeResult] = SimpleQueue()
+    worker = Thread(
+        target=_probe_gui_protocol_worker,
+        kwargs={
+            "result_queue": result_queue,
+            "device": device,
+            "baudrate": baudrate,
+            "timeout_s": timeout_s,
+            "serial_factory": Serial,
+        },
+        name=f"probe-{device}",
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=timeout_s + 0.15)
+    try:
+        return result_queue.get_nowait()
+    except Empty:
+        return GuiProtocolProbeResult()
 
 
 def probe_gui_hello(
@@ -231,6 +501,7 @@ def discover_receiver_ports(
     probe_hello: bool = False,
     trace_fn: Callable[[str, dict[str, object]], None] | None = None,
     probe_protocol_fn: Callable[..., GuiProtocolProbeResult] | None = None,
+    diagnostic_serial_factory: Callable[..., object] | None = None,
 ) -> list[ReceiverPortCandidate]:
     """Return all visible serial ports, sorted so receiver-like matches come first."""
 
@@ -317,6 +588,13 @@ def discover_receiver_ports(
                 if identity_key is not None:
                     verified_identity_keys.add(identity_key)
         candidates.append(candidate)
+    if probe_hello:
+        _apply_gui_ready_diagnostic(
+            candidates,
+            config=config,
+            trace_fn=trace_fn,
+            serial_factory=diagnostic_serial_factory,
+        )
     candidates.sort(
         key=lambda item: (
             not item.vid_pid_match,

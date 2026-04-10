@@ -45,7 +45,41 @@ class BlockingWriteSerial:
         type(self).release_write.set()
 
 
+class DtrTrackingSerial:
+    def __init__(self, **_kwargs) -> None:
+        self.closed = False
+        self.dtr = False
+        self.reset_input_buffer_called = False
+
+    def readline(self) -> bytes:
+        time.sleep(0.01)
+        return b""
+
+    def reset_input_buffer(self) -> None:
+        self.reset_input_buffer_called = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class SessionTests(unittest.TestCase):
+    def test_open_asserts_dtr_and_resets_input_buffer(self) -> None:
+        serial_instances: list[DtrTrackingSerial] = []
+
+        def serial_factory(**kwargs) -> DtrTrackingSerial:
+            serial_port = DtrTrackingSerial(**kwargs)
+            serial_instances.append(serial_port)
+            return serial_port
+
+        session = SerialSession(serial_factory=serial_factory, timeout_s=0.01)
+        session.open("COM5")
+        time.sleep(0.02)
+        session.close()
+
+        self.assertEqual(len(serial_instances), 1)
+        self.assertTrue(serial_instances[0].dtr)
+        self.assertTrue(serial_instances[0].reset_input_buffer_called)
+
     def test_reader_emits_single_disconnect_event_on_failure(self) -> None:
         session = SerialSession(serial_factory=ExplodingSerial, timeout_s=0.01)
         session.open("COM5")
