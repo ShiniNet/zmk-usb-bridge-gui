@@ -71,16 +71,16 @@ class StatusSnapshot:
             data["battery_percent"] = self.battery_percent
         if self.modifiers_supported is not None:
             data["modifiers_supported"] = self.modifiers_supported
-        if self.modifiers is not None:
-            data["modifiers"] = list(self.modifiers)
+        if self.modifiers is not None or self.modifiers_supported is not None:
+            data["modifiers"] = list(self.modifiers) if self.modifiers is not None else None
         if self.last_key_supported is not None:
             data["last_key_supported"] = self.last_key_supported
         if self.last_key is not None or self.last_key_supported is not None:
             data["last_key"] = self.last_key
         if self.mouse_buttons_supported is not None:
             data["mouse_buttons_supported"] = self.mouse_buttons_supported
-        if self.mouse_buttons is not None:
-            data["mouse_buttons"] = list(self.mouse_buttons)
+        if self.mouse_buttons is not None or self.mouse_buttons_supported is not None:
+            data["mouse_buttons"] = list(self.mouse_buttons) if self.mouse_buttons is not None else None
         return data
 
 

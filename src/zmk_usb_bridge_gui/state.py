@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Callable, Literal
 
 from .protocol import Candidate
 
@@ -120,7 +120,7 @@ class AppState:
 
     @property
     def can_refresh(self) -> bool:
-        return self.attached and not self.busy
+        return self.can_scan
 
     @property
     def can_connect_selected(self) -> bool:
@@ -133,7 +133,7 @@ class AppState:
 
     @property
     def can_bond_erase(self) -> bool:
-        return self.attached and not self.busy
+        return self.can_scan
 
     @property
     def can_retry(self) -> bool:
@@ -145,50 +145,56 @@ class AppState:
             return None
         return self.candidate_cache.get(self.selected_candidate_id)
 
-    @property
-    def battery_text(self) -> str:
+    def _telemetry_text(
+        self,
+        *,
+        supported: bool | None,
+        value: object | None,
+        value_text: Callable[[], str],
+        missing_text: str,
+    ) -> str:
         if self.receiver_state != "connected":
             return "Disconnected"
-        if self.battery_supported is False:
+        if supported is False:
             return "Unsupported"
-        if self.battery_percent is not None:
-            return f"{self.battery_percent}%"
-        if self.battery_supported is True:
-            return "Not reported yet"
+        if value is not None:
+            return value_text()
+        if supported is True:
+            return missing_text
         return "Pending"
+
+    @property
+    def battery_text(self) -> str:
+        return self._telemetry_text(
+            supported=self.battery_supported,
+            value=self.battery_percent,
+            value_text=lambda: f"{self.battery_percent}%",
+            missing_text="Not reported yet",
+        )
 
     @property
     def modifiers_text(self) -> str:
-        if self.receiver_state != "connected":
-            return "Disconnected"
-        if self.modifiers_supported is False:
-            return "Unsupported"
-        if self.modifiers is not None:
-            return ", ".join(self.modifiers) if self.modifiers else "None"
-        if self.modifiers_supported is True:
-            return "Not reported yet"
-        return "Pending"
+        return self._telemetry_text(
+            supported=self.modifiers_supported,
+            value=self.modifiers,
+            value_text=lambda: ", ".join(self.modifiers) if self.modifiers else "None",
+            missing_text="Not reported yet",
+        )
 
     @property
     def last_key_text(self) -> str:
-        if self.receiver_state != "connected":
-            return "Disconnected"
-        if self.last_key_supported is False:
-            return "Unsupported"
-        if self.last_key is not None:
-            return self.last_key
-        if self.last_key_supported is True:
-            return "None yet"
-        return "Pending"
+        return self._telemetry_text(
+            supported=self.last_key_supported,
+            value=self.last_key,
+            value_text=lambda: self.last_key or "",
+            missing_text="None yet",
+        )
 
     @property
     def mouse_buttons_text(self) -> str:
-        if self.receiver_state != "connected":
-            return "Disconnected"
-        if self.mouse_buttons_supported is False:
-            return "Unsupported"
-        if self.mouse_buttons is not None:
-            return ", ".join(self.mouse_buttons) if self.mouse_buttons else "None"
-        if self.mouse_buttons_supported is True:
-            return "Not reported yet"
-        return "Pending"
+        return self._telemetry_text(
+            supported=self.mouse_buttons_supported,
+            value=self.mouse_buttons,
+            value_text=lambda: ", ".join(self.mouse_buttons) if self.mouse_buttons else "None",
+            missing_text="Not reported yet",
+        )

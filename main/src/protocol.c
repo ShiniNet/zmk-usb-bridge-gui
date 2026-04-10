@@ -69,9 +69,13 @@ static void log_protocol_drop(const char *context)
     zmk_usb_bridge_gui_usb_channel_write_log_line(log_line);
 }
 
-static bool emit_completed_line(const char *context, char *buffer, int written)
+static bool emit_completed_line(
+    const char *context,
+    char *buffer,
+    size_t buffer_size,
+    int written)
 {
-    if (written < 0 || written >= PROTOCOL_BUFFER_SIZE) {
+    if (written < 0 || (size_t)written >= buffer_size) {
         log_protocol_drop(context);
         return false;
     }
@@ -90,6 +94,11 @@ static void json_string_or_null(const char *input, char *buffer, size_t buffer_s
 
     if (input == NULL) {
         snprintk(buffer, buffer_size, "null");
+        return;
+    }
+
+    if (buffer_size < 3U) {
+        buffer[0] = '\0';
         return;
     }
 
@@ -175,7 +184,9 @@ static void format_optional_code_suffix(
     char code_json[JSON_SHORT_VALUE_BUFFER_SIZE];
 
     if (code == NULL) {
-        snprintk(suffix_buffer, suffix_buffer_size, "");
+        if (suffix_buffer_size > 0U) {
+            suffix_buffer[0] = '\0';
+        }
         return;
     }
 
@@ -193,7 +204,9 @@ static void format_optional_connection_detail_suffix(
     char message_json[JSON_TEXT_VALUE_BUFFER_SIZE];
 
     if (code == NULL || message == NULL) {
-        snprintk(suffix_buffer, suffix_buffer_size, "");
+        if (suffix_buffer_size > 0U) {
+            suffix_buffer[0] = '\0';
+        }
         return;
     }
 
@@ -374,14 +387,15 @@ void zmk_usb_bridge_gui_protocol_emit_hello(void)
     if (!emit_completed_line(
             "hello",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"hello\",\"product\":\"zmk-usb-bridge-gui\","
-        "\"protocol_version\":1,\"channel\":\"gui\","
-        "\"board\":%s,\"firmware_version\":%s}",
-        board_json,
-        firmware_version_json))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"hello\",\"product\":\"zmk-usb-bridge-gui\","
+                "\"protocol_version\":1,\"channel\":\"gui\","
+                "\"board\":%s,\"firmware_version\":%s}",
+                board_json,
+                firmware_version_json))) {
         return;
     }
 }
@@ -420,30 +434,31 @@ void zmk_usb_bridge_gui_protocol_emit_status_snapshot(
     if (!emit_completed_line(
             "status_snapshot",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"status_snapshot\",\"receiver_state\":%s,"
-        "\"peer_name\":%s,\"peer_address\":%s,\"scan_in_progress\":%s,"
-        "\"candidate_generation\":%d,\"candidate_count\":%d,"
-        "\"battery_supported\":%s,\"battery_percent\":%s,"
-        "\"modifiers_supported\":%s,\"modifiers\":%s,"
-        "\"last_key_supported\":%s,\"last_key\":%s,"
-        "\"mouse_buttons_supported\":%s,\"mouse_buttons\":%s}",
-        receiver_state_json,
-        peer_name_json,
-        peer_address_json,
-        state->scan_in_progress ? "true" : "false",
-        state->candidate_generation,
-        state->candidate_count,
-        state->battery_supported ? "true" : "false",
-        battery_percent_json,
-        state->modifiers_supported ? "true" : "false",
-        modifiers_json,
-        state->last_key_supported ? "true" : "false",
-        last_key_json,
-        state->mouse_buttons_supported ? "true" : "false",
-        mouse_buttons_json))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"status_snapshot\",\"receiver_state\":%s,"
+                "\"peer_name\":%s,\"peer_address\":%s,\"scan_in_progress\":%s,"
+                "\"candidate_generation\":%d,\"candidate_count\":%d,"
+                "\"battery_supported\":%s,\"battery_percent\":%s,"
+                "\"modifiers_supported\":%s,\"modifiers\":%s,"
+                "\"last_key_supported\":%s,\"last_key\":%s,"
+                "\"mouse_buttons_supported\":%s,\"mouse_buttons\":%s}",
+                receiver_state_json,
+                peer_name_json,
+                peer_address_json,
+                state->scan_in_progress ? "true" : "false",
+                state->candidate_generation,
+                state->candidate_count,
+                state->battery_supported ? "true" : "false",
+                battery_percent_json,
+                state->modifiers_supported ? "true" : "false",
+                modifiers_json,
+                state->last_key_supported ? "true" : "false",
+                last_key_json,
+                state->mouse_buttons_supported ? "true" : "false",
+                mouse_buttons_json))) {
         return;
     }
 }
@@ -497,12 +512,13 @@ void zmk_usb_bridge_gui_protocol_emit_scan_started(int candidate_generation)
     if (!emit_completed_line(
             "scan_started",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"event\",\"name\":\"scan_started\","
-        "\"candidate_generation\":%d}",
-        candidate_generation))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"event\",\"name\":\"scan_started\","
+                "\"candidate_generation\":%d}",
+                candidate_generation))) {
         return;
     }
 }
@@ -518,6 +534,7 @@ void zmk_usb_bridge_gui_protocol_emit_candidate_upsert(
         !emit_completed_line(
             "candidate_upsert",
             buffer,
+            sizeof(buffer),
             snprintk(
                 buffer,
                 sizeof(buffer),
@@ -544,16 +561,17 @@ void zmk_usb_bridge_gui_protocol_emit_scan_complete(
     if (!emit_completed_line(
             "scan_complete",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"event\",\"name\":\"scan_complete\","
-        "\"candidate_generation\":%d,\"result\":%s,"
-        "\"candidate_count\":%d%s}",
-        candidate_generation,
-        result_json,
-        candidate_count,
-        optional_code_suffix))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"event\",\"name\":\"scan_complete\","
+                "\"candidate_generation\":%d,\"result\":%s,"
+                "\"candidate_count\":%d%s}",
+                candidate_generation,
+                result_json,
+                candidate_count,
+                optional_code_suffix))) {
         return;
     }
 }
@@ -579,15 +597,16 @@ void zmk_usb_bridge_gui_protocol_emit_connection_state(
     if (!emit_completed_line(
             "connection_state",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"event\",\"name\":\"connection_state\","
-        "\"state\":%s,\"peer_name\":%s,\"peer_address\":%s%s}",
-        state_json,
-        peer_name_json,
-        peer_address_json,
-        optional_detail_suffix))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"event\",\"name\":\"connection_state\","
+                "\"state\":%s,\"peer_name\":%s,\"peer_address\":%s%s}",
+                state_json,
+                peer_name_json,
+                peer_address_json,
+                optional_detail_suffix))) {
         return;
     }
 }
@@ -619,22 +638,23 @@ void zmk_usb_bridge_gui_protocol_emit_telemetry_update(
     if (!emit_completed_line(
             "telemetry_update",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"event\",\"name\":\"telemetry_update\","
-        "\"battery_supported\":%s,\"battery_percent\":%s,"
-        "\"modifiers_supported\":%s,\"modifiers\":%s,"
-        "\"last_key_supported\":%s,\"last_key\":%s,"
-        "\"mouse_buttons_supported\":%s,\"mouse_buttons\":%s}",
-        state->battery_supported ? "true" : "false",
-        battery_percent_json,
-        state->modifiers_supported ? "true" : "false",
-        modifiers_json,
-        state->last_key_supported ? "true" : "false",
-        last_key_json,
-        state->mouse_buttons_supported ? "true" : "false",
-        mouse_buttons_json))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"event\",\"name\":\"telemetry_update\","
+                "\"battery_supported\":%s,\"battery_percent\":%s,"
+                "\"modifiers_supported\":%s,\"modifiers\":%s,"
+                "\"last_key_supported\":%s,\"last_key\":%s,"
+                "\"mouse_buttons_supported\":%s,\"mouse_buttons\":%s}",
+                state->battery_supported ? "true" : "false",
+                battery_percent_json,
+                state->modifiers_supported ? "true" : "false",
+                modifiers_json,
+                state->last_key_supported ? "true" : "false",
+                last_key_json,
+                state->mouse_buttons_supported ? "true" : "false",
+                mouse_buttons_json))) {
         return;
     }
 }
@@ -646,12 +666,13 @@ void zmk_usb_bridge_gui_protocol_emit_bonds_cleared(int cleared_count)
     if (!emit_completed_line(
             "bonds_cleared",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"event\",\"name\":\"bonds_cleared\","
-        "\"cleared_count\":%d}",
-        cleared_count))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"event\",\"name\":\"bonds_cleared\","
+                "\"cleared_count\":%d}",
+                cleared_count))) {
         return;
     }
 }
@@ -665,13 +686,14 @@ void zmk_usb_bridge_gui_protocol_emit_ack(int request_id, const char *name)
     if (!emit_completed_line(
             "ack",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"ack\",\"request_id\":%d,\"name\":%s,"
-        "\"accepted\":true}",
-        request_id,
-        name_json))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"ack\",\"request_id\":%d,\"name\":%s,"
+                "\"accepted\":true}",
+                request_id,
+                name_json))) {
         return;
     }
 }
@@ -693,15 +715,16 @@ void zmk_usb_bridge_gui_protocol_emit_error(
     if (!emit_completed_line(
             "error",
             buffer,
+            sizeof(buffer),
             snprintk(
-        buffer,
-        sizeof(buffer),
-        "{\"type\":\"error\",\"request_id\":%d,\"name\":%s,"
-        "\"code\":%s,\"message\":%s}",
-        request_id,
-        name_json,
-        code_json,
-        message_json))) {
+                buffer,
+                sizeof(buffer),
+                "{\"type\":\"error\",\"request_id\":%d,\"name\":%s,"
+                "\"code\":%s,\"message\":%s}",
+                request_id,
+                name_json,
+                code_json,
+                message_json))) {
         return;
     }
 }

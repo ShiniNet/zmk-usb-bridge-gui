@@ -68,6 +68,27 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(parsed.last_key, "A")
         self.assertEqual(parsed.mouse_buttons, ("LEFT",))
 
+    def test_status_snapshot_serializes_explicit_nulls_for_unreported_supported_telemetry(self) -> None:
+        snapshot = StatusSnapshot(
+            receiver_state="connected",
+            peer_name="LaLapadGen2",
+            peer_address="E4:B6:69:12:34:56",
+            scan_in_progress=False,
+            candidate_generation=7,
+            candidate_count=1,
+            battery_supported=True,
+            modifiers_supported=True,
+            last_key_supported=True,
+            mouse_buttons_supported=True,
+        )
+
+        parsed = parse_message_line(serialize_message_line(snapshot))
+        self.assertIsInstance(parsed, StatusSnapshot)
+        self.assertIsNone(parsed.battery_percent)
+        self.assertIsNone(parsed.modifiers)
+        self.assertIsNone(parsed.last_key)
+        self.assertIsNone(parsed.mouse_buttons)
+
     def test_invalid_json_raises_protocol_error(self) -> None:
         with self.assertRaises(ProtocolParseError) as context:
             parse_message_line("{not json}\n")

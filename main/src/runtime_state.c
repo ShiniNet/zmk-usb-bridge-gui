@@ -53,6 +53,13 @@ static void clear_stub_telemetry(void)
     runtime_state.mouse_buttons.count = 0U;
 }
 
+static void clear_peer_connection(void)
+{
+    runtime_state.peer_name = NULL;
+    runtime_state.peer_address = NULL;
+    clear_stub_telemetry();
+}
+
 static int find_candidate_index(int candidate_id)
 {
     for (int index = 0; index < runtime_state.candidate_count; ++index) {
@@ -67,14 +74,12 @@ static int find_candidate_index(int candidate_id)
 void zmk_usb_bridge_gui_state_init(void)
 {
     runtime_state.receiver_state = "idle";
-    runtime_state.peer_name = NULL;
-    runtime_state.peer_address = NULL;
     runtime_state.scan_in_progress = false;
     runtime_state.candidate_generation = 0;
     runtime_state.candidate_count = 0;
     runtime_state.active_candidate_id = -1;
     runtime_state.bonded_peer_count = 0;
-    clear_stub_telemetry();
+    clear_peer_connection();
 }
 
 const struct zmk_usb_bridge_gui_state *zmk_usb_bridge_gui_state_get(void)
@@ -89,9 +94,7 @@ void zmk_usb_bridge_gui_state_prepare_scan(void)
     runtime_state.candidate_generation += 1;
     runtime_state.candidate_count = 0;
     runtime_state.active_candidate_id = -1;
-    runtime_state.peer_name = NULL;
-    runtime_state.peer_address = NULL;
-    clear_stub_telemetry();
+    clear_peer_connection();
 }
 
 bool zmk_usb_bridge_gui_state_publish_scan_candidate(void)
@@ -132,9 +135,7 @@ void zmk_usb_bridge_gui_state_connect_candidate(void)
 {
     runtime_state.receiver_state = "connecting";
     runtime_state.scan_in_progress = false;
-    runtime_state.peer_name = NULL;
-    runtime_state.peer_address = NULL;
-    clear_stub_telemetry();
+    clear_peer_connection();
 }
 
 void zmk_usb_bridge_gui_state_set_connected(void)
@@ -164,13 +165,11 @@ int zmk_usb_bridge_gui_state_reset_bonds(void)
     int cleared_count = runtime_state.bonded_peer_count;
 
     runtime_state.receiver_state = "idle";
-    runtime_state.peer_name = NULL;
-    runtime_state.peer_address = NULL;
     runtime_state.scan_in_progress = false;
     runtime_state.candidate_count = 0;
     runtime_state.active_candidate_id = -1;
     runtime_state.bonded_peer_count = 0;
-    clear_stub_telemetry();
+    clear_peer_connection();
     return cleared_count;
 }
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from zmk_usb_bridge_gui.controller import AppController
-from zmk_usb_bridge_gui.protocol import AckMessage, Candidate, CandidateSnapshot, ErrorMessage, EventMessage, StatusSnapshot
+from zmk_usb_bridge_gui.protocol import AckMessage, Candidate, CandidateSnapshot, ErrorMessage, EventMessage, HelloMessage, StatusSnapshot
 
 
 class FakeClock:
@@ -20,6 +20,13 @@ def build_controller() -> tuple[AppController, FakeClock]:
 
 
 class ControllerTests(unittest.TestCase):
+    def test_hello_mismatch_sets_last_error(self) -> None:
+        controller, _ = build_controller()
+
+        controller.apply_message(HelloMessage(product="wrong-product"))
+
+        self.assertIn("did not match the expected GUI protocol", controller.state.last_error or "")
+
     def test_scan_sequence_updates_candidate_list(self) -> None:
         controller, _ = build_controller()
 
@@ -81,6 +88,20 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(controller.state.receiver_state, "connecting")
         self.assertFalse(controller.state.scan_in_progress)
 
+    def test_scan_complete_error_sets_last_error(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(EventMessage(name="scan_started", fields={"candidate_generation": 4}))
+
+        controller.apply_message(
+            EventMessage(
+                name="scan_complete",
+                fields={"candidate_generation": 4, "result": "error", "candidate_count": 0, "code": "scan_failed"},
+            )
+        )
+
+        self.assertEqual(controller.state.receiver_state, "idle")
+        self.assertEqual(controller.state.last_error, "Scan failed (scan_failed)")
+
     def test_connection_state_preserves_peer_when_fields_are_omitted(self) -> None:
         controller, _ = build_controller()
         controller.apply_message(
@@ -98,6 +119,19 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(controller.state.receiver_state, "connecting")
         self.assertEqual(controller.state.peer_name, "LaLapadGen2")
         self.assertEqual(controller.state.peer_address, "E4:B6:69:12:34:56")
+
+    def test_connection_state_discards_non_string_peer_fields(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            EventMessage(
+                name="connection_state",
+                fields={"state": "connected", "peer_name": 42, "peer_address": False},
+            )
+        )
+
+        self.assertEqual(controller.state.receiver_state, "connected")
+        self.assertIsNone(controller.state.peer_name)
+        self.assertIsNone(controller.state.peer_address)
 
     def test_status_snapshot_clears_last_error_after_resync(self) -> None:
         controller, _ = build_controller()
@@ -160,6 +194,7 @@ class ControllerTests(unittest.TestCase):
             )
         )
         controller.apply_message(EventMessage(name="bonds_cleared", fields={"cleared_count": 1}))
+        self.assertEqual(controller.state.candidate_list, [])
         controller.apply_message(
             StatusSnapshot(
                 receiver_state="idle",
@@ -199,6 +234,31 @@ class ControllerTests(unittest.TestCase):
         )
 
         self.assertIn("stale_candidate_generation", controller.state.last_error or "")
+
+    def test_candidate_upsert_with_stale_generation_is_ignored(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(EventMessage(name="scan_started", fields={"candidate_generation": 8}))
+
+        controller.apply_message(
+            EventMessage(
+                name="candidate_upsert",
+                fields={
+                    "candidate_generation": 7,
+                    "candidate": {
+                        "candidate_id": 3,
+                        "ble_address": "E4:B6:69:12:34:56",
+                        "display_name": "LaLapadGen2",
+                        "connectable": True,
+                        "has_hid_service": True,
+                        "has_keyboard_appearance": True,
+                        "rssi": -47,
+                    },
+                },
+            )
+        )
+
+        self.assertEqual(controller.state.candidate_list, [])
+        self.assertIsNone(controller.state.last_error)
 
     def test_connection_error_keeps_idle_state(self) -> None:
         controller, _ = build_controller()
@@ -342,6 +402,17 @@ class ControllerTests(unittest.TestCase):
 
         controller.apply_message(AckMessage(request_id=2, name="get_candidates", accepted=True))
         self.assertFalse(controller.state.busy)
+
+    def test_pending_command_name_tracks_latest_pending_command_deterministically(self) -> None:
+        controller, _ = build_controller()
+        controller.build_command("get_status")
+        controller.build_command("get_candidates")
+
+        self.assertEqual(controller.state.pending_command_name, "get_candidates")
+
+        controller.apply_message(AckMessage(request_id=2, name="get_candidates", accepted=True))
+
+        self.assertEqual(controller.state.pending_command_name, "get_status")
 
 
 if __name__ == "__main__":
