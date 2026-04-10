@@ -317,7 +317,11 @@ class AppRuntime:
 
     def _discovery_worker(self, discovery_config: DiscoveryConfig) -> None:
         try:
-            candidates = self._discover_ports(discovery_config, probe_hello=True)
+            candidates = self._discover_ports(
+                discovery_config,
+                probe_hello=True,
+                trace_fn=lambda event, fields: self._emit_app_event(event, "lifecycle", fields, None),
+            )
         except SerialDiscoveryError as exc:
             self._discovery_results.put(("error", str(exc)))
             return
@@ -538,6 +542,8 @@ class AppRuntime:
 
     @staticmethod
     def _is_supported_gui_candidate(candidate: ReceiverPortCandidate) -> bool:
+        if candidate.protocol_verified and not candidate.hello_verified:
+            return True
         return (
             candidate.hello_verified
             and candidate.hello_product == PROTOCOL_PRODUCT

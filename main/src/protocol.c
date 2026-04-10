@@ -35,6 +35,7 @@ static bool stub_connect_pending;
 static int64_t stub_connect_complete_due_at_ms;
 
 static void emit_line(const char *line);
+static void log_stub_progress(const char *format, ...);
 
 static bool append_json_fragment(
     char *buffer,
@@ -66,6 +67,23 @@ static void log_protocol_drop(const char *context)
     char log_line[96];
 
     snprintk(log_line, sizeof(log_line), "protocol emit dropped: %s truncated", context);
+    zmk_usb_bridge_gui_usb_channel_write_log_line(log_line);
+}
+
+static void log_stub_progress(const char *format, ...)
+{
+    char log_line[96];
+    int written;
+    va_list args;
+
+    va_start(args, format);
+    written = vsnprintk(log_line, sizeof(log_line), format, args);
+    va_end(args);
+    if (written < 0 || (size_t)written >= sizeof(log_line)) {
+        zmk_usb_bridge_gui_usb_channel_write_log_line("stub progress log truncated");
+        return;
+    }
+
     zmk_usb_bridge_gui_usb_channel_write_log_line(log_line);
 }
 
@@ -776,6 +794,11 @@ static void handle_scan_start(int request_id)
     stub_scan_stage = STUB_SCAN_STAGE_WAITING_FOR_CANDIDATE;
     stub_scan_candidate_due_at_ms = now_ms + STUB_SCAN_CANDIDATE_DELAY_MS;
     stub_scan_complete_due_at_ms = now_ms + STUB_SCAN_COMPLETE_DELAY_MS;
+    log_stub_progress(
+        "stub scan started gen=%d due_candidate=%lld due_complete=%lld",
+        state->candidate_generation,
+        stub_scan_candidate_due_at_ms,
+        stub_scan_complete_due_at_ms);
 
     zmk_usb_bridge_gui_protocol_emit_ack(request_id, "scan_start");
     zmk_usb_bridge_gui_protocol_emit_scan_started(state->candidate_generation);
@@ -925,6 +948,7 @@ void zmk_usb_bridge_gui_protocol_poll(void)
         const struct zmk_usb_bridge_gui_candidate *candidate;
 
         if (!zmk_usb_bridge_gui_state_publish_scan_candidate()) {
+            log_stub_progress("stub scan publish returned no candidate");
             stub_scan_stage = STUB_SCAN_STAGE_WAITING_FOR_COMPLETE;
             return;
         }
@@ -932,6 +956,11 @@ void zmk_usb_bridge_gui_protocol_poll(void)
         state = zmk_usb_bridge_gui_state_get();
         candidate =
             zmk_usb_bridge_gui_state_get_candidate_by_index((size_t)state->candidate_count - 1U);
+        log_stub_progress(
+            "stub scan candidate idx=%d id=%d name=%s",
+            state->candidate_count,
+            candidate != NULL ? candidate->candidate_id : -1,
+            (candidate != NULL && candidate->display_name != NULL) ? candidate->display_name : "<null>");
         zmk_usb_bridge_gui_protocol_emit_candidate_upsert(state, candidate);
         if (zmk_usb_bridge_gui_state_scan_has_pending_candidates()) {
             stub_scan_candidate_due_at_ms = now_ms + STUB_SCAN_CANDIDATE_DELAY_MS;
@@ -945,6 +974,7 @@ void zmk_usb_bridge_gui_protocol_poll(void)
         now_ms >= stub_scan_complete_due_at_ms) {
         zmk_usb_bridge_gui_state_complete_scan();
         state = zmk_usb_bridge_gui_state_get();
+        log_stub_progress("stub scan complete count=%d", state->candidate_count);
         zmk_usb_bridge_gui_protocol_emit_scan_complete(
             state->candidate_generation, "ok", state->candidate_count, NULL);
         stub_scan_stage = STUB_SCAN_STAGE_IDLE;

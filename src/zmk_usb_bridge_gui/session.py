@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from queue import Empty, SimpleQueue
-from threading import Event, Lock, Thread
+from threading import Event, Thread, current_thread
 from typing import Callable
 
 from .protocol import Message, ProtocolParseError, parse_message_line, serialize_message_line
@@ -52,9 +52,10 @@ class SerialSession:
         self._timeout_s = timeout_s
         self._protocol_tap = protocol_tap
         self._events: SimpleQueue[SessionEvent] = SimpleQueue()
+        self._write_queue: SimpleQueue[bytes | None] = SimpleQueue()
         self._stop_event = Event()
-        self._write_lock = Lock()
         self._reader_thread: Thread | None = None
+        self._writer_thread: Thread | None = None
         self._serial = None
         self.device: str | None = None
 
@@ -67,6 +68,7 @@ class SerialSession:
 
     def open(self, device: str, *, baudrate: int = 115200) -> None:
         self.close()
+        self._write_queue = SimpleQueue()
         try:
             serial_port = self._serial_factory(
                 port=device,
@@ -80,12 +82,17 @@ class SerialSession:
         self._serial = serial_port
         self._stop_event.clear()
         self._reader_thread = Thread(target=self._reader_loop, name="receiver-session-reader", daemon=True)
+        self._writer_thread = Thread(target=self._writer_loop, name="receiver-session-writer", daemon=True)
         self._reader_thread.start()
+        self._writer_thread.start()
 
     def close(self) -> None:
         self._stop_event.set()
         reader_thread = self._reader_thread
         self._reader_thread = None
+        writer_thread = self._writer_thread
+        self._writer_thread = None
+        self._write_queue.put(None)
         serial_port = self._serial
         self._serial = None
         if serial_port is not None:
@@ -93,8 +100,11 @@ class SerialSession:
                 serial_port.close()
             except Exception:
                 pass
-        if reader_thread is not None and reader_thread.is_alive():
+        active_thread = current_thread()
+        if reader_thread is not None and reader_thread.is_alive() and reader_thread is not active_thread:
             reader_thread.join(timeout=0.5)
+        if writer_thread is not None and writer_thread.is_alive() and writer_thread is not active_thread:
+            writer_thread.join(timeout=0.5)
         self.device = None
 
     def send_message(self, message: Message) -> None:
@@ -106,15 +116,9 @@ class SerialSession:
         if protocol_tap is not None:
             protocol_tap("tx", payload_text, message, None)
         payload = payload_text.encode("utf-8")
-        try:
-            with self._write_lock:
-                serial_port.write(payload)
-                if hasattr(serial_port, "flush"):
-                    serial_port.flush()
-        except Exception as exc:  # pragma: no cover - depends on OS serial stack.
-            self._events.put(SessionDisconnectedEvent(f"Receiver port write failed: {exc}"))
-            self.close()
-            raise SessionOpenError(f"Receiver port write failed: {exc}") from exc
+        if self._stop_event.is_set():
+            raise SessionOpenError("Receiver session is not open")
+        self._write_queue.put(payload)
 
     def drain_events(self) -> list[SessionEvent]:
         events: list[SessionEvent] = []
@@ -147,8 +151,33 @@ class SerialSession:
                 self._events.put(SessionMessageEvent(message))
         except Exception as exc:  # pragma: no cover - depends on OS serial stack.
             if not self._stop_event.is_set():
+                self._stop_event.set()
                 disconnected_emitted = True
                 self._events.put(SessionDisconnectedEvent(f"Receiver port disconnected: {exc}"))
         finally:
             if not self._stop_event.is_set() and not disconnected_emitted:
                 self._events.put(SessionDisconnectedEvent("Receiver port disconnected"))
+
+    def _writer_loop(self) -> None:
+        serial_port = self._serial
+        if serial_port is None:
+            return
+
+        while not self._stop_event.is_set():
+            try:
+                payload = self._write_queue.get(timeout=0.1)
+            except Empty:
+                continue
+
+            if payload is None:
+                return
+
+            try:
+                serial_port.write(payload)
+                if hasattr(serial_port, "flush"):
+                    serial_port.flush()
+            except Exception as exc:  # pragma: no cover - depends on OS serial stack.
+                if not self._stop_event.is_set():
+                    self._stop_event.set()
+                    self._events.put(SessionDisconnectedEvent(f"Receiver port write failed: {exc}"))
+                return

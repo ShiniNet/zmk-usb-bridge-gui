@@ -118,6 +118,9 @@ def make_candidate(
     protocol_version: int = 1,
     serial_number: str | None = None,
     location: str | None = None,
+    hello_verified: bool = True,
+    protocol_verified: bool | None = None,
+    protocol_verified_via: str | None = None,
 ) -> ReceiverPortCandidate:
     hello = HelloMessage(product=product, channel=channel, protocol_version=protocol_version)
     return ReceiverPortCandidate(
@@ -129,10 +132,12 @@ def make_candidate(
             location=location,
         ),
         vid_pid_match=True,
-        hello_verified=True,
-        hello_product=hello.product,
-        hello_channel=hello.channel,
-        hello_protocol_version=hello.protocol_version,
+        hello_verified=hello_verified,
+        hello_product=hello.product if hello_verified else None,
+        hello_channel=hello.channel if hello_verified else None,
+        hello_protocol_version=hello.protocol_version if hello_verified else None,
+        protocol_verified=hello_verified if protocol_verified is None else protocol_verified,
+        protocol_verified_via="hello" if hello_verified and protocol_verified_via is None else protocol_verified_via,
     )
 
 
@@ -235,6 +240,62 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual(runtime.state.discovery_state, "receiver_not_found")
         self.assertFalse(runtime.state.attached)
+
+    def test_protocol_verified_port_without_hello_is_attached(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [
+                make_candidate(
+                    "COM8",
+                    hello_verified=False,
+                    protocol_verified=True,
+                    protocol_verified_via="ack",
+                )
+            ],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+
+        self.assertTrue(runtime.state.attached)
+        self.assertEqual(runtime.state.receiver_port, "COM8")
+        self.assertEqual(sessions[0].open_calls, ["COM8"])
+
+    def test_protocol_verified_sibling_ports_do_not_require_multiple_attachments(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [
+                make_candidate("COM7", serial_number="receiver-1"),
+                make_candidate(
+                    "COM8",
+                    serial_number="receiver-1",
+                    hello_verified=False,
+                    protocol_verified=False,
+                ),
+            ],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+
+        self.assertEqual(runtime.state.receiver_port, "COM7")
+        self.assertEqual(len(sessions), 1)
 
     def test_refresh_requests_status_and_candidates(self) -> None:
         clock = FakeClock()
