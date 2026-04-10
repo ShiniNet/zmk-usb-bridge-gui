@@ -91,7 +91,7 @@ GUI 側の表示原則:
 - 接続後に以下を満たさない場合は `connected` に入らず failure 扱いにして切断してよい
   - `HID service` の discovery が成立する
   - `keyboard input report` の discovery / subscription が成立する
-  - receiver が bridge 可能な最小 report 構成を確認できる
+  - receiver が `key input`、`consumer control`、`mouse event` を host PC へ橋渡し可能な最小 report 構成を確認できる
 
 ## Rationale
 

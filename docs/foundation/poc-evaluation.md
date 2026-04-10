@@ -31,7 +31,7 @@
 ### 5. USB Regression Safety
 
 - `CDC ACM` 追加後も、接続成立時の HID bridge 動作が破綻しない
-- 確認方法: `connected` 到達後に実入力を数回確認し、入力欠落や明確なフリーズが出ないことを確認する
+- 確認方法: `connected` 到達後に `key input`、`consumer control`、`mouse event` をそれぞれ実入力で確認し、入力欠落や明確なフリーズが出ないことを確認する
 
 ### 6. COM Port Detection Stability
 
@@ -71,7 +71,7 @@
 ### 3. CDC ACM Causes Core Regression
 
 - `CDC ACM` 追加により HID bridge 入力や再接続が明確に悪化する
-- 例: 接続はできても入力が安定しない、抜き差しのたびに接続不能になる
+- 例: 接続はできても `key input`、`consumer control`、`mouse event` のいずれかが安定しない、抜き差しのたびに接続不能になる
 
 ### 4. Candidate Listing Loses Product Value
 

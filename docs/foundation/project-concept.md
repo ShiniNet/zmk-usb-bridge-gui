@@ -12,6 +12,7 @@
 - protocol の正本は [`protocol-v1.md`](protocol-v1.md)
 - candidate 評価と GUI 公開モデルの正本は [`candidate-listing-policy.md`](candidate-listing-policy.md)
 - desktop app 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md)
+- `Phase 2` 以降の残タスクと実装順の正本は [`phase2-and-beyond-implementation-plan.md`](phase2-and-beyond-implementation-plan.md)
 - テスト投資の優先順位と追加基準の正本は [`testing-policy.md`](testing-policy.md)
 - `PoC` の `pass / hold / fail` 条件の正本は [`poc-evaluation.md`](poc-evaluation.md)
 - `Phase 1` の確認結果と review evidence は [`../validation/phase1-validation-log.md`](../validation/phase1-validation-log.md)
@@ -86,6 +87,8 @@
 
 - 以下は `Initial PoC` 全体で見据える表示・操作の全体像であり、`Phase 1` 完了条件そのものは `Minimum Functional Set For PoC Complete` を正とする
 
+- `LaLapadGen2` をはじめとする接続対象 `ZMK keyboard` からの `HID event` を、receiver が無線で受けて host PC へ正しく橋渡しできる
+- 橋渡し対象の `HID event` には、少なくとも `key input`、`consumer control`、`mouse event` を含む
 - 現在の接続状態を表示できる
 - 接続中キーボード名を表示できる
 - battery 情報を表示できる
@@ -158,6 +161,7 @@
 - candidate cache は GUI 向けに公開できるモデルとして持つ
 - GUI からの `connect_candidate` を受けて初めて connect を開始する
 - 接続後 validation は `HID service`、`keyboard input report`、必要な report discovery の成立を通過条件にする
+- 接続成立後は、receiver が `key input`、`consumer control`、`mouse event` を host PC 向け `USB HID` として正しく橋渡しできることを中核要件とする
 - bond 済みデバイスへの reconnect は firmware が自動処理する。GUI からの明示的な reconnect 指示は持たない
 - `LaLapadGen2` を参照対象にしつつも、設計上は将来の ZMK keyboard 一般化を阻害しない責務分割を保つ
 

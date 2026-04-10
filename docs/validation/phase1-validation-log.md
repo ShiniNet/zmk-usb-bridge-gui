@@ -111,20 +111,21 @@
 
 ### 8. Reconnect Stability
 
-- Status: `pending`
+- Status: `deferred (firmware stub)`
 - Target:
   - 初回 pairing 成功後、keyboard 側電源の off/on もしくは一時切断から `15 秒以内` に bonded reconnect へ戻れる
 - Evidence:
   - `receiver` の USB 抜き差し後に GUI 用 `COM port` へ再接続できることは確認済み
   - ただしこれは `BLE bonded reconnect` そのものの観測ではなく、`PoC Evaluation` の `Reconnect Stability` pass 判定とは別項目として扱う
 - Notes:
-  - 未観測
+  - current firmware は stub であり、実 BLE bond / bonded reconnect を持たない
+  - したがってこの項目は `Phase 1` では close せず、real firmware 実装後の `Phase 3` validation へ移す
   - 次回は `LaLapadGen2` を初回 pairing 済みの状態にした上で、keyboard 側の一時切断または電源 off/on から `connected` 復帰までの時間を記録する
-  - 3 回程度の反復観測を残し、`pass` か `hold` かを判定できるようにする
+  - 判定時は少なくとも `1 回` の成功観測に加え、`3 回試して 1 回以上失敗する` の hold 条件にも該当しないことを確認する
 
 ## Open Questions
 
 - 実機の `connect_candidate` failure code はどの集合になるか
 - `status_snapshot` と `candidate_snapshot` の再送タイミングは current runtime の `Refresh` / watchdog 戦略で十分か
 - `receiver not found`、`multiple receivers detected` など補助ケースの UI 観測はどう見えるか
-- `bonded reconnect` の成功率と復帰時間は、`PoC Evaluation` の `Reconnect Stability` pass 条件を満たすか
+- `bonded reconnect` の成功率と復帰時間は、real firmware 実装後に `PoC Evaluation` の `Reconnect Stability` 条件を満たすか
