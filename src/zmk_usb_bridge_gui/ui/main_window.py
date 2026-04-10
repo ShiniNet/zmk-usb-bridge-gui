@@ -4,6 +4,10 @@ import importlib
 import sys
 from typing import Sequence
 
+from ..protocol import PROTOCOL_CHANNEL, PROTOCOL_PRODUCT
+
+DEFAULT_RECEIVER_VID_PID_ALLOWLIST = ((0x2FE3, 0x0012),)
+
 
 def _load_qt():
     try:
@@ -71,6 +75,13 @@ def build_main_window():
     status_bar = widgets.QStatusBar()
     window.setStatusBar(status_bar)
 
+    def is_gui_port(candidate) -> bool:
+        return (
+            candidate.hello_verified
+            and candidate.hello_product == PROTOCOL_PRODUCT
+            and candidate.hello_channel == PROTOCOL_CHANNEL
+        )
+
     def refresh_ports() -> None:
         try:
             from ..serial_discovery import (
@@ -86,7 +97,10 @@ def build_main_window():
             return
 
         try:
-            candidates = discover_receiver_ports(DiscoveryConfig())
+            candidates = discover_receiver_ports(
+                DiscoveryConfig(vid_pid_allowlist=DEFAULT_RECEIVER_VID_PID_ALLOWLIST),
+                probe_hello=True,
+            )
         except SerialDiscoveryError as exc:
             discovery_value.setText("unavailable")
             ports_view.setPlainText(str(exc))
@@ -94,13 +108,44 @@ def build_main_window():
             return
         if not candidates:
             discovery_value.setText("0 candidates")
+            connection_value.setText("receiver not found")
+            protocol_value.setText("n/a")
             ports_view.setPlainText("No serial ports matched the receiver scaffold.")
             status_bar.showMessage("no serial ports found")
             return
 
-        discovery_value.setText(f"{len(candidates)} candidate(s)")
-        ports_view.setPlainText("\n".join(format_receiver_port(candidate) for candidate in candidates))
-        status_bar.showMessage(f"discovered {len(candidates)} serial port(s)")
+        gui_candidates = [candidate for candidate in candidates if is_gui_port(candidate)]
+        other_candidates = [candidate for candidate in candidates if not is_gui_port(candidate)]
+
+        lines = [format_receiver_port(candidate) for candidate in gui_candidates]
+        if other_candidates:
+            if lines:
+                lines.append("")
+            lines.append("Ignored non-GUI ports:")
+            lines.extend(format_receiver_port(candidate) for candidate in other_candidates)
+
+        ports_view.setPlainText(
+            "\n".join(lines) if lines else "No GUI control port replied to hello."
+        )
+
+        if not gui_candidates:
+            discovery_value.setText("0 gui port(s)")
+            connection_value.setText("receiver not verified")
+            protocol_value.setText("n/a")
+            status_bar.showMessage("no GUI control port verified")
+            return
+
+        if len(gui_candidates) == 1:
+            connection_value.setText("receiver detected")
+        else:
+            connection_value.setText("multiple receivers")
+
+        first_protocol_version = gui_candidates[0].hello_protocol_version
+        protocol_value.setText(
+            f"v{first_protocol_version}" if first_protocol_version is not None else "n/a"
+        )
+        discovery_value.setText(f"{len(gui_candidates)} gui port(s)")
+        status_bar.showMessage(f"verified {len(gui_candidates)} GUI control port(s)")
 
     def clear_ports() -> None:
         ports_view.clear()
