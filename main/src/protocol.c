@@ -248,8 +248,8 @@ static bool format_candidate_json(
             buffer,
             buffer_size,
             &offset,
-            ",\"last_seen_ms\":%d",
-            candidate->last_seen_ms)) {
+            ",\"last_seen_ms\":%lld",
+            (long long)candidate->last_seen_ms)) {
         return false;
     }
 
@@ -754,6 +754,15 @@ static void handle_scan_start(int request_id)
             "scan_start",
             "connect_busy",
             "connect in progress");
+        return;
+    }
+
+    if (strcmp(state->receiver_state, "connected") == 0) {
+        zmk_usb_bridge_gui_protocol_emit_error(
+            request_id,
+            "scan_start",
+            "invalid_state",
+            "scan_start is not allowed while connected");
         return;
     }
 

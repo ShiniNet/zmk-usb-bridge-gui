@@ -21,6 +21,10 @@ static struct zmk_usb_bridge_gui_state runtime_state;
 static struct scan_candidate_record scan_candidate_cache[ZMK_USB_BRIDGE_GUI_SCAN_CACHE_SIZE];
 static int next_candidate_id = 1;
 
+BUILD_ASSERT(
+    ZMK_USB_BRIDGE_GUI_SCAN_CACHE_SIZE >= ZMK_USB_BRIDGE_GUI_MAX_CANDIDATES,
+    "scan cache must fit the published candidate list");
+
 static void clear_stub_telemetry(void)
 {
     runtime_state.battery_supported = true;
@@ -74,9 +78,9 @@ static int candidate_tier(const struct zmk_usb_bridge_gui_candidate *candidate)
 
 static bool candidate_is_storage_eligible(const struct zmk_usb_bridge_gui_candidate *candidate)
 {
-    return candidate != NULL && candidate->connectable &&
-           (candidate->has_hid_service || candidate->has_keyboard_appearance ||
-            candidate_has_display_name(candidate));
+    return candidate != NULL &&
+           (candidate->connectable || candidate->has_hid_service ||
+            candidate->has_keyboard_appearance || candidate_has_display_name(candidate));
 }
 
 static int compare_candidate_records(
@@ -225,7 +229,14 @@ static void rebuild_public_candidate_list(void)
             continue;
         }
 
-        insert_index = visible_count;
+        if (visible_count >= ARRAY_SIZE(ordered) &&
+            compare_candidate_records(record, ordered[ARRAY_SIZE(ordered) - 1U]) >= 0) {
+            continue;
+        }
+
+        insert_index = visible_count < ARRAY_SIZE(ordered)
+                           ? visible_count
+                           : ARRAY_SIZE(ordered) - 1U;
         while (insert_index > 0U &&
                compare_candidate_records(record, ordered[insert_index - 1U]) < 0) {
             ordered[insert_index] = ordered[insert_index - 1U];
@@ -256,7 +267,7 @@ static struct scan_candidate_record *allocate_or_replace_record(
     bool has_hid_service,
     bool has_keyboard_appearance,
     int rssi,
-    int last_seen_ms)
+    int64_t last_seen_ms)
 {
     struct scan_candidate_record *record = find_free_record();
 
@@ -348,7 +359,7 @@ const struct zmk_usb_bridge_gui_candidate *zmk_usb_bridge_gui_state_observe_scan
     bool has_hid_service,
     bool has_keyboard_appearance,
     int rssi,
-    int last_seen_ms)
+    int64_t last_seen_ms)
 {
     struct scan_candidate_record *record;
 
@@ -431,16 +442,7 @@ void zmk_usb_bridge_gui_state_set_connected(void)
     runtime_state.peer_name = candidate != NULL ? candidate->display_name : NULL;
     runtime_state.peer_address = candidate != NULL ? candidate->ble_address : NULL;
     runtime_state.bonded_peer_count = candidate != NULL ? 1 : 0;
-    runtime_state.battery_supported = true;
-    runtime_state.battery_percent = 84;
-    runtime_state.modifiers_supported = true;
-    runtime_state.modifiers_reported = true;
-    runtime_state.modifiers.count = 0U;
-    runtime_state.last_key_supported = true;
-    runtime_state.last_key = "A";
-    runtime_state.mouse_buttons_supported = true;
-    runtime_state.mouse_buttons_reported = true;
-    runtime_state.mouse_buttons.count = 0U;
+    clear_stub_telemetry();
 }
 
 int zmk_usb_bridge_gui_state_reset_bonds(void)

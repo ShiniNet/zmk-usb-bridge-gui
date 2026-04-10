@@ -51,7 +51,7 @@ class StateTests(unittest.TestCase):
 
         state.receiver_state = "connected"
         self.assertFalse(state.can_connect_selected)
-        self.assertTrue(state.can_scan)
+        self.assertFalse(state.can_scan)
         self.assertTrue(state.can_refresh)
         self.assertTrue(state.can_bond_erase)
 
@@ -68,6 +68,16 @@ class StateTests(unittest.TestCase):
         self.assertFalse(state.can_connect_selected)
         self.assertFalse(state.can_bond_erase)
         self.assertTrue(state.can_retry)
+
+    def test_candidate_sorting_uses_candidate_id_as_final_tiebreaker(self) -> None:
+        candidates = [
+            CandidateView(8, "FF", "Same", True, True, True, -40, 1000),
+            CandidateView(3, "AA", "Same", True, True, True, -40, 1000),
+        ]
+
+        sorted_candidates = sort_public_candidates(candidates)
+
+        self.assertEqual([candidate.candidate_id for candidate in sorted_candidates], [3, 8])
 
     def test_telemetry_text_distinguishes_disconnected_pending_and_unsupported(self) -> None:
         state = AppState(receiver_state="idle")
