@@ -20,6 +20,7 @@ class SessionMessageEvent:
 @dataclass(slots=True)
 class SessionProtocolErrorEvent:
     detail: str
+    raw: str | None = None
 
 
 @dataclass(slots=True)
@@ -28,6 +29,7 @@ class SessionDisconnectedEvent:
 
 
 SessionEvent = SessionMessageEvent | SessionProtocolErrorEvent | SessionDisconnectedEvent
+SessionProtocolTap = Callable[[str, str, Message | None, str | None], None]
 
 
 def _load_serial() -> type:
@@ -44,9 +46,11 @@ class SerialSession:
         *,
         serial_factory: Callable[..., object] | None = None,
         timeout_s: float = 0.2,
+        protocol_tap: SessionProtocolTap | None = None,
     ) -> None:
         self._serial_factory = serial_factory or _load_serial()
         self._timeout_s = timeout_s
+        self._protocol_tap = protocol_tap
         self._events: SimpleQueue[SessionEvent] = SimpleQueue()
         self._stop_event = Event()
         self._write_lock = Lock()
@@ -57,6 +61,9 @@ class SerialSession:
     @property
     def is_open(self) -> bool:
         return self._serial is not None
+
+    def set_protocol_tap(self, protocol_tap: SessionProtocolTap | None) -> None:
+        self._protocol_tap = protocol_tap
 
     def open(self, device: str, *, baudrate: int = 115200) -> None:
         self.close()
@@ -94,7 +101,11 @@ class SerialSession:
         serial_port = self._serial
         if serial_port is None:
             raise SessionOpenError("Receiver session is not open")
-        payload = serialize_message_line(message).encode("utf-8")
+        payload_text = serialize_message_line(message)
+        protocol_tap = self._protocol_tap
+        if protocol_tap is not None:
+            protocol_tap("tx", payload_text, message, None)
+        payload = payload_text.encode("utf-8")
         try:
             with self._write_lock:
                 serial_port.write(payload)
@@ -123,12 +134,16 @@ class SerialSession:
                 raw_line = serial_port.readline()
                 if not raw_line:
                     continue
+                decoded = raw_line.decode("utf-8", errors="replace")
                 try:
-                    decoded = raw_line.decode("utf-8", errors="replace")
                     message = parse_message_line(decoded)
                 except ProtocolParseError as exc:
-                    self._events.put(SessionProtocolErrorEvent(str(exc)))
+                    if self._protocol_tap is not None:
+                        self._protocol_tap("rx", decoded, None, str(exc))
+                    self._events.put(SessionProtocolErrorEvent(str(exc), raw=decoded))
                     continue
+                if self._protocol_tap is not None:
+                    self._protocol_tap("rx", decoded, message, None)
                 self._events.put(SessionMessageEvent(message))
         except Exception as exc:  # pragma: no cover - depends on OS serial stack.
             if not self._stop_event.is_set():

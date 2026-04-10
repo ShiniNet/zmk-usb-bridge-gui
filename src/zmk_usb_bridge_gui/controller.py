@@ -26,36 +26,51 @@ from .state import AppState, CandidateView, sort_public_candidates
 
 
 class AppController:
-    def __init__(self, *, time_fn: Callable[[], float]) -> None:
+    def __init__(
+        self,
+        *,
+        time_fn: Callable[[], float],
+        app_event_sink: Callable[[str, str, dict[str, Any] | None, str | None], None] | None = None,
+    ) -> None:
         self._time_fn = time_fn
+        self._app_event_sink = app_event_sink
         self.state = AppState()
         self._next_request_id = 1
         self._pending_command_order: list[str] = []
 
     def mark_discovering(self) -> None:
+        snapshot = self._event_snapshot()
         self.state.discovery_state = "discovering"
         self.state.discovery_detail = "Searching for receiver..."
         self.state.multiple_receiver_ports = ()
+        self._emit_state_changes(snapshot)
 
     def mark_receiver_not_found(self) -> None:
+        snapshot = self._event_snapshot()
         self._reset_attachment()
         self.state.discovery_state = "receiver_not_found"
         self.state.discovery_detail = "Receiver not found"
         self.state.multiple_receiver_ports = ()
+        self._emit_state_changes(snapshot)
 
     def mark_multiple_receivers(self, ports: list[str]) -> None:
+        snapshot = self._event_snapshot()
         self._reset_attachment()
         self.state.discovery_state = "multiple_receivers"
         self.state.discovery_detail = "Multiple receivers detected"
         self.state.multiple_receiver_ports = tuple(ports)
+        self._emit_state_changes(snapshot)
 
     def mark_discovery_error(self, detail: str) -> None:
+        snapshot = self._event_snapshot()
         self._reset_attachment()
         self.state.discovery_state = "error"
         self.state.discovery_detail = detail
         self.state.last_error = detail
+        self._emit_state_changes(snapshot)
 
     def mark_attached(self, candidate: ReceiverPortCandidate) -> None:
+        snapshot = self._event_snapshot()
         self.state.discovery_state = "attached"
         self.state.discovery_detail = "Receiver attached"
         self.state.attached = True
@@ -65,12 +80,15 @@ class AppController:
         self.state.preferred_device_path = candidate.port.location or candidate.port.device
         self.state.multiple_receiver_ports = ()
         self.state.last_error = None
+        self._emit_state_changes(snapshot)
 
     def mark_disconnected(self, detail: str) -> None:
+        snapshot = self._event_snapshot()
         self._reset_attachment()
         self.state.discovery_state = "disconnected"
         self.state.discovery_detail = detail
         self.state.last_error = detail
+        self._emit_state_changes(snapshot)
 
     def build_command(self, name: str, **fields: object) -> CommandMessage:
         self.state.pending_command_names.add(name)
@@ -84,35 +102,38 @@ class AppController:
         return CommandMessage(request_id=request_id, name=name, fields=dict(fields))
 
     def clear_last_error_for_user_action(self) -> None:
+        snapshot = self._event_snapshot()
         self.state.last_error = None
+        self._emit_state_changes(snapshot)
 
     def apply_message(self, message: Message) -> None:
+        snapshot = self._event_snapshot()
         if isinstance(message, HelloMessage):
             self._apply_hello(message)
-            return
-        if isinstance(message, StatusSnapshot):
+        elif isinstance(message, StatusSnapshot):
             self._apply_status_snapshot(message)
-            return
-        if isinstance(message, CandidateSnapshot):
+        elif isinstance(message, CandidateSnapshot):
             self._apply_candidate_snapshot(message)
-            return
-        if isinstance(message, AckMessage):
+        elif isinstance(message, AckMessage):
             self._apply_ack(message)
-            return
-        if isinstance(message, ErrorMessage):
+        elif isinstance(message, ErrorMessage):
             self._apply_error(message)
-            return
-        if isinstance(message, EventMessage):
+        elif isinstance(message, EventMessage):
             self._apply_event(message)
-            return
+        self._emit_state_changes(snapshot)
 
     def handle_protocol_error(self, detail: str) -> None:
+        snapshot = self._event_snapshot()
         self.state.last_error = f"Protocol parse error: {detail}"
+        self._emit_state_changes(snapshot)
 
     def set_last_error(self, detail: str) -> None:
+        snapshot = self._event_snapshot()
         self.state.last_error = detail
+        self._emit_state_changes(snapshot)
 
     def expire_scan_watchdog(self, timeout_s: float) -> bool:
+        snapshot = self._event_snapshot()
         started_at = self.state.scan_watchdog_started_at
         if started_at is None:
             return False
@@ -124,6 +145,7 @@ class AppController:
             self.state.scan_in_progress = False
             self._clear_pending_commands()
             self.state.last_error = "Scan timed out while waiting for scan_complete; requesting resync."
+            self._emit_state_changes(snapshot)
             return True
         return False
 
@@ -333,3 +355,47 @@ class AppController:
             self.state.modifiers_supported = None
             self.state.last_key_supported = None
             self.state.mouse_buttons_supported = None
+
+    def _event_snapshot(self) -> tuple[str, str, str | None, str | None]:
+        return (
+            self.state.discovery_state,
+            self.state.receiver_state,
+            self.state.peer_name,
+            self.state.last_error,
+        )
+
+    def _emit_state_changes(self, snapshot: tuple[str, str, str | None, str | None]) -> None:
+        previous_discovery_state, previous_receiver_state, previous_peer_name, previous_last_error = snapshot
+        if self.state.discovery_state != previous_discovery_state:
+            self._emit_app_event(
+                "receiver_attach_state_changed",
+                kind="state",
+                fields={"discovery_state": self.state.discovery_state},
+            )
+        if (
+            self.state.receiver_state != previous_receiver_state
+            or self.state.peer_name != previous_peer_name
+        ):
+            fields: dict[str, Any] = {"receiver_state": self.state.receiver_state}
+            if self.state.peer_name is not None:
+                fields["peer_name"] = self.state.peer_name
+            self._emit_app_event("receiver_state_changed", kind="state", fields=fields)
+        if self.state.last_error != previous_last_error:
+            self._emit_app_event(
+                "last_error_changed",
+                kind="error",
+                fields={"message": self.state.last_error or ""},
+                detail=self.state.last_error or "",
+            )
+
+    def _emit_app_event(
+        self,
+        event: str,
+        *,
+        kind: str,
+        fields: dict[str, Any] | None = None,
+        detail: str | None = None,
+    ) -> None:
+        if self._app_event_sink is None:
+            return
+        self._app_event_sink(event, kind, fields, detail)

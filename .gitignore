@@ -11,10 +11,10 @@ dist/
 
 # Logs
 *.log
+logs/
 
 # IDE / OS
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
-

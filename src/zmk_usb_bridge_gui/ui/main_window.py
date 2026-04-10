@@ -111,18 +111,52 @@ def build_main_window():
     error_layout.addWidget(error_label_title)
     error_layout.addWidget(error_value)
 
+    debug_group = widgets.QGroupBox("Debug Capture")
+    debug_layout = widgets.QGridLayout(debug_group)
+    debug_layout.setHorizontalSpacing(18)
+    debug_layout.setVerticalSpacing(8)
+    capture_status_value = widgets.QLabel("Unavailable")
+    session_id_value = widgets.QLabel("n/a")
+    log_path_value = widgets.QLabel("n/a")
+    receiver_debug_port_value = widgets.QLabel("n/a")
+    keyboard_log_port_value = widgets.QLabel("n/a")
+    debug_error_value = widgets.QLabel("None")
+    debug_error_value.setWordWrap(True)
+    capture_status_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    session_id_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    log_path_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    receiver_debug_port_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    keyboard_log_port_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    debug_error_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    debug_layout.addWidget(widgets.QLabel("Capture Status"), 0, 0)
+    debug_layout.addWidget(capture_status_value, 0, 1)
+    debug_layout.addWidget(widgets.QLabel("Session ID"), 1, 0)
+    debug_layout.addWidget(session_id_value, 1, 1)
+    debug_layout.addWidget(widgets.QLabel("Log File"), 2, 0)
+    debug_layout.addWidget(log_path_value, 2, 1)
+    debug_layout.addWidget(widgets.QLabel("Receiver Debug Port"), 3, 0)
+    debug_layout.addWidget(receiver_debug_port_value, 3, 1)
+    debug_layout.addWidget(widgets.QLabel("Keyboard Log Port"), 4, 0)
+    debug_layout.addWidget(keyboard_log_port_value, 4, 1)
+    debug_layout.addWidget(widgets.QLabel("Capture Error"), 5, 0)
+    debug_layout.addWidget(debug_error_value, 5, 1)
+
     controls = widgets.QHBoxLayout()
     scan_button = widgets.QPushButton("Scan")
     refresh_button = widgets.QPushButton("Refresh")
     connect_button = widgets.QPushButton("Connect")
     bond_erase_button = widgets.QPushButton("Bond Erase")
     retry_button = widgets.QPushButton("Retry")
+    start_keyboard_log_button = widgets.QPushButton("Start Keyboard Log")
+    stop_keyboard_log_button = widgets.QPushButton("Stop Keyboard Log")
     scan_button.setDefault(True)
     controls.addWidget(scan_button)
     controls.addWidget(refresh_button)
     controls.addWidget(connect_button)
     controls.addWidget(bond_erase_button)
     controls.addWidget(retry_button)
+    controls.addWidget(start_keyboard_log_button)
+    controls.addWidget(stop_keyboard_log_button)
     controls.addStretch(1)
 
     status_bar = widgets.QStatusBar()
@@ -162,6 +196,12 @@ def build_main_window():
         last_key_value.setText(state.last_key_text)
         mouse_buttons_value.setText(state.mouse_buttons_text)
         error_value.setText(state.last_error or "None")
+        capture_status_value.setText("Active" if state.debug_capture_active else "Unavailable")
+        session_id_value.setText(state.debug_session_id or "n/a")
+        log_path_value.setText(state.debug_log_path or "n/a")
+        receiver_debug_port_value.setText(state.receiver_debug_port or "n/a")
+        keyboard_log_port_value.setText(state.keyboard_log_port or "n/a")
+        debug_error_value.setText(state.debug_capture_error or "None")
 
         candidates_table.blockSignals(True)
         candidates_table.setRowCount(len(state.candidate_list))
@@ -190,6 +230,8 @@ def build_main_window():
         connect_button.setEnabled(state.can_connect_selected)
         bond_erase_button.setEnabled(state.can_bond_erase)
         retry_button.setEnabled(state.can_retry)
+        start_keyboard_log_button.setEnabled(state.can_start_keyboard_log)
+        stop_keyboard_log_button.setEnabled(state.can_stop_keyboard_log)
 
         if state.discovery_state == "multiple_receivers" and state.multiple_receiver_ports:
             status_bar.showMessage(
@@ -225,6 +267,63 @@ def build_main_window():
         runtime.retry_discovery()
         update_ui()
 
+    def on_start_keyboard_log_clicked() -> None:
+        candidates = runtime.list_keyboard_log_candidates()
+        if not candidates:
+            runtime.note_keyboard_log_attach_skipped(
+                "no serial ports are currently available for keyboard log capture"
+            )
+            widgets.QMessageBox.information(
+                window,
+                "Keyboard Log Capture",
+                "No serial ports are currently available for keyboard log capture.",
+            )
+            update_ui()
+            return
+
+        labels = [runtime.format_keyboard_log_candidate(port) for port in candidates]
+        preferred_index = 0
+        for index, port in enumerate(candidates):
+            if (
+                runtime.state.preferred_keyboard_serial_number
+                and port.serial_number == runtime.state.preferred_keyboard_serial_number
+            ) or (
+                runtime.state.preferred_keyboard_device_path
+                and (
+                    port.location == runtime.state.preferred_keyboard_device_path
+                    or port.device == runtime.state.preferred_keyboard_device_path
+                )
+            ):
+                preferred_index = index
+                break
+
+        choice, accepted = widgets.QInputDialog.getItem(
+            window,
+            "Keyboard Log Capture",
+            "Select keyboard debug serial port:",
+            labels,
+            preferred_index,
+            False,
+        )
+        if not accepted:
+            runtime.note_keyboard_log_attach_skipped("keyboard log attach was cancelled by the user")
+            update_ui()
+            return
+
+        selected_index = labels.index(choice)
+        selected_port = candidates[selected_index]
+        if not runtime.attach_keyboard_log(selected_port.device):
+            widgets.QMessageBox.warning(
+                window,
+                "Keyboard Log Capture",
+                "Could not start keyboard log capture. Check the capture error field for details.",
+            )
+        update_ui()
+
+    def on_stop_keyboard_log_clicked() -> None:
+        runtime.detach_keyboard_log()
+        update_ui()
+
     def pump_runtime() -> None:
         runtime.tick()
         update_ui()
@@ -234,6 +333,8 @@ def build_main_window():
     connect_button.clicked.connect(on_connect_clicked)
     bond_erase_button.clicked.connect(on_bond_erase_clicked)
     retry_button.clicked.connect(on_retry_clicked)
+    start_keyboard_log_button.clicked.connect(on_start_keyboard_log_clicked)
+    stop_keyboard_log_button.clicked.connect(on_stop_keyboard_log_clicked)
     candidates_table.itemSelectionChanged.connect(update_candidate_selection_from_table)
 
     root.addWidget(title)
@@ -242,6 +343,7 @@ def build_main_window():
     root.addLayout(controls)
     root.addWidget(candidates_group, 1)
     root.addWidget(error_frame)
+    root.addWidget(debug_group)
     window.setCentralWidget(central)
     window.setStatusTip("Phase 1 GUI for the zmk-usb-bridge-gui PoC.")
 

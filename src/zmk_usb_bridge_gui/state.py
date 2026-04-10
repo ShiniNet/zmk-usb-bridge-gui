@@ -100,6 +100,8 @@ class AppState:
     multiple_receiver_ports: tuple[str, ...] = ()
     preferred_serial_number: str | None = None
     preferred_device_path: str | None = None
+    preferred_keyboard_serial_number: str | None = None
+    preferred_keyboard_device_path: str | None = None
     scan_watchdog_started_at: float | None = None
     battery_percent: int | None = None
     battery_supported: bool | None = None
@@ -109,6 +111,12 @@ class AppState:
     last_key_supported: bool | None = None
     mouse_buttons: tuple[str, ...] | None = None
     mouse_buttons_supported: bool | None = None
+    debug_capture_active: bool = False
+    debug_session_id: str | None = None
+    debug_log_path: str | None = None
+    debug_capture_error: str | None = None
+    receiver_debug_port: str | None = None
+    keyboard_log_port: str | None = None
 
     @property
     def busy(self) -> bool:
@@ -138,6 +146,14 @@ class AppState:
     @property
     def can_retry(self) -> bool:
         return not self.attached
+
+    @property
+    def can_start_keyboard_log(self) -> bool:
+        return self.debug_capture_active and self.keyboard_log_port is None
+
+    @property
+    def can_stop_keyboard_log(self) -> bool:
+        return self.keyboard_log_port is not None
 
     @property
     def selected_candidate(self) -> CandidateView | None:
