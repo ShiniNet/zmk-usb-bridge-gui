@@ -19,6 +19,7 @@
 - 以下は repository 上の `desktop app` 実装と test をもとにした現時点の棚卸しであり、`Current State Summary` の初版記述より進んだ状態を反映する
 - `serial_discovery.py`、`session.py`、`controller.py`、`runtime.py`、`ui/main_window.py`、`tests/` が存在し、`Phase 1` の土台実装は概ね入っている
 - `./.venv/bin/python -m unittest discover -s tests -v` は通過しており、protocol / state / controller / runtime / session の主要 contract は自動 test で一通り守られている
+- `Priority 1: Stub Bring-up` はローカル GUI 手動確認ベースで概ね完了とみなし、以降は `Windows 実機 validation`、`firmware 統合確認`、`packaging` を優先する
 
 ### 既にコード化されているもの
 
@@ -37,12 +38,11 @@
 
 ## Remaining Task Backlog
 
-### Priority 1: Stub Bring-up 完了
+### Priority 1: Stub Bring-up 完了済み
 
-- `stub protocol` 相手に `hello -> status_snapshot -> candidate_snapshot` の初期同期を GUI 上で確認する
-- `Scan`、`Refresh`、`Connect`、`Bond Erase` の各ボタン操作が stub 応答と整合しているかを手動確認する
-- `scan_complete(result=stopped)` 後に `connecting` 表示へ遷移する導線を GUI で確認する
-- `last error` の表示文言が実運用で追跡しやすいかを確認し、必要なら調整する
+- `stub protocol` 相手に `hello -> status_snapshot -> candidate_snapshot` の初期同期を GUI 上で確認済み
+- `Scan`、`Refresh`、`Connect`、`Bond Erase` の各ボタン操作が stub 応答と概ね整合していることを確認済み
+- `scan_complete(result=stopped)` や `last error` の細部は、必要なら `receiver firmware` 統合時の観測に合わせて微調整する
 
 ### Priority 2: Receiver Firmware との統合確認
 
@@ -67,7 +67,7 @@
 
 ## Suggested Next Slice
 
-- 次の着手単位は `stub bring-up の手動確認 -> Windows 実機 validation -> packaging 確認` の順を推奨する
+- 次の着手単位は `Windows 実機 validation -> packaging 確認 -> firmware 統合時の不足補完` の順を推奨する
 - もし追加実装が必要になった場合も、まずは `実機で観測された不足` に限定して補完し、`Deferred After Phase 1` の項目は混ぜない
 
 ## Scope

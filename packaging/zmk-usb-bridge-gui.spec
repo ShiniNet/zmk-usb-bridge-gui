@@ -1,6 +1,6 @@
 from pathlib import Path
 
-project_root = Path(__file__).resolve().parents[1]
+project_root = Path.cwd().resolve()
 src_root = project_root / "src"
 entry_point = src_root / "zmk_usb_bridge_gui" / "__main__.py"
 
@@ -9,7 +9,10 @@ a = Analysis(
     pathex=[str(src_root)],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=[
+        "PySide6.QtCore",
+        "PySide6.QtWidgets",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

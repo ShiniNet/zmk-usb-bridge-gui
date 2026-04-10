@@ -17,6 +17,12 @@
 - `foundation/implementation-start-checklist.md`: DesktopApp Phase 1 の実装タスク、順序、レビュー観点
 - `foundation/poc-evaluation.md`: PoC の pass / hold / fail 条件
 
+### `validation/`
+
+PoC の手動確認結果、未確認項目、review 用 evidence を置く。
+
+- `validation/phase1-validation-log.md`: `DesktopApp Phase 1` の確認結果と未解決事項の記録
+
 ## 読み方と記述ルール
 
 - 初めて読む場合は `foundation/project-concept.md` を入口にし、必要な詳細は各正本 document を参照する
