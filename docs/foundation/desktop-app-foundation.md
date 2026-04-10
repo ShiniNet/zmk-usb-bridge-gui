@@ -101,6 +101,7 @@
 ### GUI Surface Contract
 
 - summary には `Connection`、`Receiver Port`、`Protocol Version`、`Peer Name`、`Receiver State` を表示する
+- `Phase 2+` では summary を拡張し、`Battery`、`Modifiers`、`Last Key`、`Mouse Buttons` を追加表示してよい
 - candidate table には `Display Name`、`Address`、`RSSI`、`Tier` を表示する
 - `display_name` が無い candidate は `Unnamed HID device` と表示する
 - `Tier B` は `keyboard appearance unverified` が分かる文言で表示する
@@ -109,6 +110,7 @@
 - `Connect` は `attach 済み`、`non-busy`、候補選択済み、かつ `receiver_state != connected` のときだけ有効化する
 - `Retry` は未 attach 時だけ有効化する
 - `Last Error` を常設し、複数 receiver 検知時は status bar に port 一覧を表示してよい
+- telemetry 表示は少なくとも `Disconnected`、`Unsupported`、`Pending / Not reported yet` を区別できるようにする
 
 ### Validation Evidence
 

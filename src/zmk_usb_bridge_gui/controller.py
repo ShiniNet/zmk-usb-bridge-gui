@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 from .protocol import (
     AckMessage,
@@ -131,10 +131,11 @@ class AppController:
 
     def _apply_status_snapshot(self, message: StatusSnapshot) -> None:
         self.state.receiver_state = message.receiver_state
-        self.state.scan_in_progress = message.receiver_state == "scanning"
+        self.state.scan_in_progress = message.scan_in_progress
         self.state.peer_name = message.peer_name
         self.state.peer_address = message.peer_address
         self.state.candidate_generation = message.candidate_generation
+        self._replace_telemetry_from_snapshot(message)
         if not self.state.scan_in_progress:
             self.state.scan_watchdog_started_at = None
         if self.state.last_error and message.receiver_state in {"idle", "connected"}:
@@ -200,6 +201,7 @@ class AppController:
 
         if message.name == "connection_state":
             state = message.fields.get("state")
+            previous_state = self.state.receiver_state
             if isinstance(state, str):
                 self.state.receiver_state = state
             self.state.scan_in_progress = False
@@ -211,6 +213,9 @@ class AppController:
             if state == "idle":
                 self.state.peer_name = None
                 self.state.peer_address = None
+                self._clear_live_telemetry()
+            elif state == "connected" and previous_state != "connected":
+                self._clear_live_telemetry()
             code = message.fields.get("code")
             detail = message.fields.get("message")
             if isinstance(code, str) and isinstance(detail, str):
@@ -222,6 +227,11 @@ class AppController:
             self.state.scan_in_progress = False
             self.state.peer_name = None
             self.state.peer_address = None
+            self._clear_live_telemetry(clear_support=True)
+            return
+
+        if message.name == "telemetry_update":
+            self._apply_telemetry_event(message.fields)
 
     def _refresh_public_candidates(self) -> None:
         candidate_list = sort_public_candidates(list(self.state.candidate_cache.values()))
@@ -244,6 +254,7 @@ class AppController:
         self.state.selected_candidate_id = None
         self._clear_pending_commands()
         self.state.scan_watchdog_started_at = None
+        self._clear_live_telemetry(clear_support=True)
 
     def _clear_pending_command(self, name: str) -> None:
         self.state.pending_command_names.discard(name)
@@ -252,3 +263,96 @@ class AppController:
     def _clear_pending_commands(self) -> None:
         self.state.pending_command_names.clear()
         self.state.pending_command_name = None
+
+    def _replace_telemetry_from_snapshot(self, message: StatusSnapshot) -> None:
+        self.state.battery_percent = message.battery_percent
+        self.state.battery_supported = message.battery_supported
+        self.state.modifiers = message.modifiers
+        self.state.modifiers_supported = message.modifiers_supported
+        self.state.last_key = message.last_key
+        self.state.last_key_supported = message.last_key_supported
+        self.state.mouse_buttons = message.mouse_buttons
+        self.state.mouse_buttons_supported = message.mouse_buttons_supported
+
+    def _apply_telemetry_event(self, fields: Mapping[str, Any]) -> None:
+        try:
+            if "battery_percent" in fields:
+                self.state.battery_percent = self._parse_optional_int_field(fields, "battery_percent")
+            if "battery_supported" in fields:
+                self.state.battery_supported = self._parse_optional_bool_field(fields, "battery_supported")
+            if "modifiers" in fields:
+                self.state.modifiers = self._parse_optional_string_tuple_field(fields, "modifiers")
+            if "modifiers_supported" in fields:
+                self.state.modifiers_supported = self._parse_optional_bool_field(
+                    fields, "modifiers_supported"
+                )
+            if "last_key" in fields:
+                self.state.last_key = self._parse_optional_string_field(fields, "last_key")
+            if "last_key_supported" in fields:
+                self.state.last_key_supported = self._parse_optional_bool_field(
+                    fields, "last_key_supported"
+                )
+            if "mouse_buttons" in fields:
+                self.state.mouse_buttons = self._parse_optional_string_tuple_field(
+                    fields, "mouse_buttons"
+                )
+            if "mouse_buttons_supported" in fields:
+                self.state.mouse_buttons_supported = self._parse_optional_bool_field(
+                    fields, "mouse_buttons_supported"
+                )
+        except ProtocolParseError:
+            self.state.last_error = "telemetry_update payload was malformed"
+
+    def _clear_live_telemetry(self, *, clear_support: bool = False) -> None:
+        self.state.battery_percent = None
+        self.state.modifiers = None
+        self.state.last_key = None
+        self.state.mouse_buttons = None
+        if clear_support:
+            self.state.battery_supported = None
+            self.state.modifiers_supported = None
+            self.state.last_key_supported = None
+            self.state.mouse_buttons_supported = None
+
+    @staticmethod
+    def _parse_optional_bool_field(fields: Mapping[str, Any], field_name: str) -> bool | None:
+        value = fields.get(field_name)
+        if value is None:
+            return None
+        if not isinstance(value, bool):
+            raise ProtocolParseError(f"{field_name} must be a boolean")
+        return value
+
+    @staticmethod
+    def _parse_optional_int_field(fields: Mapping[str, Any], field_name: str) -> int | None:
+        value = fields.get(field_name)
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ProtocolParseError(f"{field_name} must be an integer")
+        return value
+
+    @staticmethod
+    def _parse_optional_string_field(fields: Mapping[str, Any], field_name: str) -> str | None:
+        value = fields.get(field_name)
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ProtocolParseError(f"{field_name} must be a string")
+        return value
+
+    @staticmethod
+    def _parse_optional_string_tuple_field(
+        fields: Mapping[str, Any], field_name: str
+    ) -> tuple[str, ...] | None:
+        value = fields.get(field_name)
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ProtocolParseError(f"{field_name} must be a list")
+        members: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ProtocolParseError(f"{field_name}[] must be a string")
+            members.append(item)
+        return tuple(members)

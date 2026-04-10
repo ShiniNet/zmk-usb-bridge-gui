@@ -101,6 +101,14 @@ class AppState:
     preferred_serial_number: str | None = None
     preferred_device_path: str | None = None
     scan_watchdog_started_at: float | None = None
+    battery_percent: int | None = None
+    battery_supported: bool | None = None
+    modifiers: tuple[str, ...] | None = None
+    modifiers_supported: bool | None = None
+    last_key: str | None = None
+    last_key_supported: bool | None = None
+    mouse_buttons: tuple[str, ...] | None = None
+    mouse_buttons_supported: bool | None = None
 
     @property
     def busy(self) -> bool:
@@ -136,3 +144,51 @@ class AppState:
         if self.selected_candidate_id is None:
             return None
         return self.candidate_cache.get(self.selected_candidate_id)
+
+    @property
+    def battery_text(self) -> str:
+        if self.receiver_state != "connected":
+            return "Disconnected"
+        if self.battery_supported is False:
+            return "Unsupported"
+        if self.battery_percent is not None:
+            return f"{self.battery_percent}%"
+        if self.battery_supported is True:
+            return "Not reported yet"
+        return "Pending"
+
+    @property
+    def modifiers_text(self) -> str:
+        if self.receiver_state != "connected":
+            return "Disconnected"
+        if self.modifiers_supported is False:
+            return "Unsupported"
+        if self.modifiers is not None:
+            return ", ".join(self.modifiers) if self.modifiers else "None"
+        if self.modifiers_supported is True:
+            return "Not reported yet"
+        return "Pending"
+
+    @property
+    def last_key_text(self) -> str:
+        if self.receiver_state != "connected":
+            return "Disconnected"
+        if self.last_key_supported is False:
+            return "Unsupported"
+        if self.last_key is not None:
+            return self.last_key
+        if self.last_key_supported is True:
+            return "None yet"
+        return "Pending"
+
+    @property
+    def mouse_buttons_text(self) -> str:
+        if self.receiver_state != "connected":
+            return "Disconnected"
+        if self.mouse_buttons_supported is False:
+            return "Unsupported"
+        if self.mouse_buttons is not None:
+            return ", ".join(self.mouse_buttons) if self.mouse_buttons else "None"
+        if self.mouse_buttons_supported is True:
+            return "Not reported yet"
+        return "Pending"

@@ -4,7 +4,7 @@ menu "ZMK USB Bridge GUI"
 
 config ZMK_USB_BRIDGE_GUI_PROTOCOL_BUFFER_SIZE
     int "Protocol message buffer size"
-    default 512
+    default 4096
     help
       Maximum line length for the line-delimited JSON protocol buffer used by
       the GUI CDC ACM stub transport.

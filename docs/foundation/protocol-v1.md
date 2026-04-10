@@ -4,17 +4,16 @@
 
 - `zmk-usb-bridge-gui` の `GUI 用 CDC ACM channel` で使う最小 protocol を定義する
 - receiver firmware と desktop app を並行実装できるようにする
-- `PoC Phase 1` に必要な `scan / candidate list / connect / bond erase` を対象にする
+- `PoC scope` のうち、`scan / candidate list / connect / bond erase` と telemetry 表示に必要な message を対象にする
 
 ## Scope
 
 - transport は `receiver 側 GUI 用 CDC ACM instance` に限定する
 - message format は `UTF-8 line-delimited JSON` で固定する
-- `Windows 優先 PoC` の最小仕様として、初回同期、候補一覧同期、command 応答、非同期 event を定義する
+- `Windows 優先 PoC` の仕様として、初回同期、候補一覧同期、command 応答、非同期 event、telemetry 同期を定義する
 
 ## Out Of Scope For v1
 
-- `battery`、`modifier`、`last key`、`mouse button` の live telemetry
 - binary framing、圧縮、認証
 - log 用 CDC channel の message format
 
@@ -83,6 +82,25 @@ receiver の現在状態を GUI に同期するための full snapshot。`hello`
 ```json
 {"type":"status_snapshot","receiver_state":"idle","peer_name":null,"peer_address":null,"scan_in_progress":false,"candidate_generation":4,"candidate_count":0}
 ```
+
+任意 telemetry field:
+
+- `battery_supported`: `boolean | null`
+- `battery_percent`: `integer | null`
+- `modifiers_supported`: `boolean | null`
+- `modifiers`: `array[string] | null`
+- `last_key_supported`: `boolean | null`
+- `last_key`: `string | null`
+- `mouse_buttons_supported`: `boolean | null`
+- `mouse_buttons`: `array[string] | null`
+
+運用ルール:
+
+- `status_snapshot` は full snapshot として扱い、telemetry を実装した receiver は現在値と support 状態をここにも載せてよい
+- `battery_percent=null` は `battery は対応しているが現時点で未取得` を表してよい
+- `modifiers=[]` と `mouse_buttons=[]` は `対応しており、現在は押下なし` を表してよい
+- `last_key=null` は `対応しているが、この session ではまだ key event 未観測` を表してよい
+- `*_supported=false` は、その telemetry を current firmware が提供しないことを表す
 
 ### `candidate_snapshot`
 
@@ -286,6 +304,41 @@ receiver が command を受理できなかったときに返す。
 {"type":"event","name":"connection_state","state":"connected","peer_name":"LaLapadGen2","peer_address":"E4:B6:69:12:34:56"}
 ```
 
+### `telemetry_update`
+
+用途:
+
+- 接続後に変化する telemetry を非同期で更新する
+
+必須 field:
+
+- `type`: `event`
+- `name`: `telemetry_update`
+
+任意 field:
+
+- `battery_supported`
+- `battery_percent`
+- `modifiers_supported`
+- `modifiers`
+- `last_key_supported`
+- `last_key`
+- `mouse_buttons_supported`
+- `mouse_buttons`
+
+意味:
+
+- 変化した field だけを送ってよい
+- `status_snapshot` が full snapshot、`telemetry_update` が増分更新という役割分担を基本とする
+- support 情報だけ先に送り、その後に値を送ってもよい
+- `protocol_version` は据え置き、unknown field 無視の前方互換ルールで拡張する
+
+例:
+
+```json
+{"type":"event","name":"telemetry_update","battery_supported":true,"battery_percent":82,"modifiers_supported":true,"modifiers":["LCTRL"],"last_key_supported":true,"last_key":"A","mouse_buttons_supported":true,"mouse_buttons":[]}
+```
+
 ### `bonds_cleared`
 
 必須 field:
@@ -459,4 +512,4 @@ generation ルール:
 
 - candidate の寿命、一覧上限、並び順、非表示条件は [`candidate-listing-policy.md`](candidate-listing-policy.md) を正本とする
 - COM port 自動検出アルゴリズムの正本は [`desktop-app-foundation.md`](desktop-app-foundation.md) とし、`hello.channel=gui` は識別材料として使ってよい
-- `battery` や入力状態の telemetry を追加する場合も、`hello / status_snapshot / command / ack / error / event` の基本枠は維持する
+- telemetry を追加・拡張する場合も、`hello / status_snapshot / command / ack / error / event` の基本枠は維持する

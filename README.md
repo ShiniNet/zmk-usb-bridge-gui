@@ -51,3 +51,38 @@ Windows 配布用 build:
 Linux 実行時は `dist/linux-x86_64/zmk-usb-bridge-gui/` が出力先です。
 これにより、`\\wsl.localhost\...` 配下で Windows build を回したときに
 既存の Linux build 成果物を掃除しようとして失敗する問題を避けます。
+
+## Receiver Firmware Build
+
+receiver firmware は、この workspace にある `zephyr/` と `toolchains/zephyr-sdk-*` を使って build できます。
+
+標準の build 手順:
+
+1. workspace root に `zephyr/`、`.west/`、`toolchains/zephyr-sdk-*` があることを確認する
+2. `./scripts/build_receiver_firmware.sh`
+3. `artifacts/builds/<timestamp>_receiver_seeeduino_xiao_ble/zephyr.uf2` または `artifacts/builds/latest/receiver_seeeduino_xiao_ble/zephyr.uf2` を使う
+
+明示的に command を打つ場合は次でもよいです。
+
+```bash
+ZEPHYR_SDK_INSTALL_DIR=/home/dev/00_Dev_BLE_Reciever/toolchains/zephyr-sdk-0.16.3 \
+west build -b seeeduino_xiao_ble . -d build/firmware/seeeduino_xiao_ble
+```
+
+補足:
+
+- helper script は `ZEPHYR_SDK_INSTALL_DIR` 未設定時に `<workspace>/toolchains` から最新の `zephyr-sdk-*` を自動検出する
+- build 出力の主対象は `zephyr.elf` と `zephyr.uf2`
+- helper script は build 成功後に `UF2` と debug artifact を `artifacts/builds/` へ履歴付きでコピーする
+- 現在の参照 board は `Seeed XIAO nRF52840` なので、まずは `zephyr.uf2` を使う運用を前提にする
+
+## Receiver Firmware Flash
+
+`Seeed XIAO nRF52840` へ書き込む最短手順:
+
+1. board の reset を素早く 2 回押して bootloader mode に入る
+2. host 側に現れた mass storage volume へ `zephyr.uf2` をコピーする
+3. board が再起動したら GUI app から attach を確認する
+
+この repository では flash 自体はまだ自動化していません。
+理由は、mount point が Windows / WSL / Linux のどこから見えるかが環境依存だからです。

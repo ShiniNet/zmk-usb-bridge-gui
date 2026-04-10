@@ -10,9 +10,43 @@
 
 - 文書作成時点で `Priority 1: Stub Bring-up` はローカル GUI 手動確認ベースで概ね完了
 - 自動 test: `uv run python -m unittest discover -s tests -v` 通過
+- local firmware build: `west build -b seeeduino_xiao_ble . -d build/firmware-check` が `ZEPHYR_SDK_INSTALL_DIR` 指定付きで通過し、`zephyr.uf2` を生成できることを確認
+- local firmware helper: `scripts/build_receiver_firmware.sh` が build 後に `artifacts/builds/` へ `UF2` と debug artifact を履歴付きで退避できることを確認
 - `PyInstaller` build は current Linux 開発環境で smoke 確認済み
 - Windows packaged `EXE` の起動、`receiver attached`、`candidate list` 初期表示、`Connect`、`Bond Erase`、`receiver` 抜き差し後の再接続は実機で確認済み
 - `DesktopApp Phase 1` の Windows 実機 validation では、USB 側 attach / candidate 表示 / connect / bond erase / receiver 抜き差し後の再接続まで確認済み
+- `Phase 1.5` の local closeout として、desktop app は telemetry 表示と `Disconnected / Unsupported / Pending` の区別まで実装済み
+- stub firmware も protocol 上は `telemetry_update`、非同期 `scan -> candidate_upsert -> scan_complete`、`scan_busy / connect_busy / invalid_state / unsupported_command` の error surface を返せる状態まで拡張済み
+
+## Phase 1.5 Closeout
+
+### Closed In Phase 1 / 1.5
+
+- `DesktopApp Phase 1` の attach / candidate list / connect / bond erase / receiver 再接続の主導線
+- packaged app の build / launch / Windows 上の基本動作確認
+- `protocol v1` の desktop app 実装、candidate policy、testing policy、foundation document の正本化
+- local test による `protocol / controller / runtime / session / state` の stable contract 保護
+- `Phase 4` 先行着手としての telemetry contract と GUI 表示の土台
+
+### Carry Over To Phase 2+
+
+- `Reconnect Stability` の pass / hold 判定
+- 実 BLE scan / candidate cache / pairing / bond storage / bonded reconnect
+- `USB HID bridge` の本実装ベースでの回帰確認
+- 実機 `connect_candidate` failure code 集合の確定
+
+### Carry-Over Reasoning
+
+- `Reconnect Stability` は `PoC Evaluation` の pass 条件に含まれるが、current firmware は stub のため `BLE bonded reconnect` 自体をまだ観測できない
+- `USB` 抜き差し後の GUI 再接続は確認済みだが、これは `receiver discovery` の確認であり、`keyboard` との bond 復帰試験とは切り分ける
+- よって `Phase 1` で close するのは `stub firmware で観測できる contract` までとし、real firmware 前提の項目は `Phase 2+` へ明示的に carry over する
+
+### Supplemental Observations Still Worth Collecting
+
+- `receiver not found`
+- `multiple receivers detected`
+- `connect_candidate` failure code と GUI 表示文言の対応
+- candidate noise と `12 件上限` 周りの実機観測
 
 ## Validation Entries
 
@@ -23,6 +57,7 @@
 - Confirmed:
   - `hello -> status_snapshot -> candidate_snapshot` の初期同期
   - `Scan`、`Refresh`、`Connect`、`Bond Erase` の基本操作導線
+  - `telemetry_update`、非同期 `scan_started -> candidate_upsert -> scan_complete`、主要 stub error code の local contract を追加実装した
 - Notes:
   - 細かな表示文言や error surface は、実機応答に合わせて必要なら微修正する
 
@@ -108,6 +143,19 @@
   - Linux build log には `xcb` 系 shared library warning が出るが、今回の smoke 範囲では build 自体と CLI 起動は成立している
   - Windows から `\\wsl.localhost\...` 配下で PyInstaller を実行した際、従来の共通 `dist/zmk-usb-bridge-gui/` を掃除しようとして Linux build 由来 symlink の削除で失敗した
   - 上記の再発防止として、以後は platform 別 output を使い Linux と Windows の build 成果物を混在させない
+
+### 7.5. Local Firmware Build
+
+- Status: `pass (local build environment)`
+- Target:
+  - workspace 既存の `zephyr/` と `toolchains/zephyr-sdk-*` を使って receiver firmware を再現可能に build できる
+- Evidence:
+  - `toolchains/zephyr-sdk-0.16.3` を `ZEPHYR_SDK_INSTALL_DIR` に指定して `west build -b seeeduino_xiao_ble . -d build/firmware-check` が成功
+  - `build/firmware-check/zephyr/zephyr.elf` と `build/firmware-check/zephyr/zephyr.uf2` の生成を確認
+  - repo 内に `scripts/build_receiver_firmware.sh` を追加し、SDK 自動検出つきの build 導線を固定した
+  - helper script 実行後、`artifacts/builds/<timestamp>_receiver_seeeduino_xiao_ble/` と `artifacts/builds/latest/receiver_seeeduino_xiao_ble/` に `zephyr.uf2` と debug artifact が保存されることを確認
+- Notes:
+  - 現時点の次の blocker は build ではなく、`UF2` を board に流して実機観測へ進むこと
 
 ### 8. Reconnect Stability
 

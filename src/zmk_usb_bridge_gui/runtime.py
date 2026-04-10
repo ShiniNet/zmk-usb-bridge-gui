@@ -78,20 +78,20 @@ class AppRuntime:
         self._next_discovery_at = 0.0
 
     def refresh(self) -> None:
-        if not self.state.attached:
+        if not self.state.can_refresh:
             return
         self.controller.clear_last_error_for_user_action()
         self._send_command("get_status")
         self._send_command("get_candidates")
 
     def scan_start(self) -> None:
-        if not self.state.attached:
+        if not self.state.can_scan:
             return
         self.controller.clear_last_error_for_user_action()
         self._send_command("scan_start")
 
     def bond_erase(self) -> None:
-        if not self.state.attached:
+        if not self.state.can_bond_erase:
             return
         self.controller.clear_last_error_for_user_action()
         self._send_command("bond_erase")
@@ -102,6 +102,8 @@ class AppRuntime:
         candidate = self.state.selected_candidate
         if candidate is None:
             self.controller.set_last_error("Select a candidate before connecting.")
+            return
+        if not self.state.can_connect_selected:
             return
         self.controller.clear_last_error_for_user_action()
         self._send_command(

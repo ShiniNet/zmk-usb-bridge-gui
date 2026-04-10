@@ -41,6 +41,8 @@ void zmk_usb_bridge_gui_startup_run(void)
             boot_snapshot_sent = true;
         }
 
+        zmk_usb_bridge_gui_protocol_poll();
+
         if (!zmk_usb_bridge_gui_usb_channel_gui_ready()) {
             boot_snapshot_sent = false;
             line_length = 0U;

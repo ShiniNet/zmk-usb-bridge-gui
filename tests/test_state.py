@@ -69,6 +69,38 @@ class StateTests(unittest.TestCase):
         self.assertFalse(state.can_bond_erase)
         self.assertTrue(state.can_retry)
 
+    def test_telemetry_text_distinguishes_disconnected_pending_and_unsupported(self) -> None:
+        state = AppState(receiver_state="idle")
+        self.assertEqual(state.battery_text, "Disconnected")
+        self.assertEqual(state.modifiers_text, "Disconnected")
+
+        state.receiver_state = "connected"
+        self.assertEqual(state.battery_text, "Pending")
+        self.assertEqual(state.last_key_text, "Pending")
+
+        state.battery_supported = False
+        state.last_key_supported = False
+        self.assertEqual(state.battery_text, "Unsupported")
+        self.assertEqual(state.last_key_text, "Unsupported")
+
+    def test_telemetry_text_formats_ready_values(self) -> None:
+        state = AppState(
+            receiver_state="connected",
+            battery_supported=True,
+            battery_percent=77,
+            modifiers_supported=True,
+            modifiers=("LCTRL", "LSHIFT"),
+            last_key_supported=True,
+            last_key="K",
+            mouse_buttons_supported=True,
+            mouse_buttons=(),
+        )
+
+        self.assertEqual(state.battery_text, "77%")
+        self.assertEqual(state.modifiers_text, "LCTRL, LSHIFT")
+        self.assertEqual(state.last_key_text, "K")
+        self.assertEqual(state.mouse_buttons_text, "None")
+
 
 if __name__ == "__main__":
     unittest.main()

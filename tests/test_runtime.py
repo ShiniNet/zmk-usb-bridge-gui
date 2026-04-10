@@ -180,6 +180,48 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual([message.name for message in sessions[0].sent_messages], ["get_status", "get_candidates"])
 
+    def test_refresh_does_not_send_while_busy(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime = AppRuntime(
+            discover_ports=lambda *_args, **_kwargs: [make_candidate("COM5")],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+        runtime.state.pending_command_names.add("scan_start")
+        runtime.refresh()
+
+        self.assertEqual(sessions[0].sent_messages, [])
+
+    def test_scan_does_not_send_while_busy(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime = AppRuntime(
+            discover_ports=lambda *_args, **_kwargs: [make_candidate("COM5")],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+        runtime.state.receiver_state = "connecting"
+        runtime.scan_start()
+
+        self.assertEqual(sessions[0].sent_messages, [])
+
     def test_reconnect_discovery_reuses_preferred_identity(self) -> None:
         clock = FakeClock()
         configs = []

@@ -46,9 +46,17 @@ class StatusSnapshot:
     scan_in_progress: bool = False
     candidate_generation: int = 0
     candidate_count: int = 0
+    battery_percent: int | None = None
+    battery_supported: bool | None = None
+    modifiers: tuple[str, ...] | None = None
+    modifiers_supported: bool | None = None
+    last_key: str | None = None
+    last_key_supported: bool | None = None
+    mouse_buttons: tuple[str, ...] | None = None
+    mouse_buttons_supported: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "type": self.type,
             "receiver_state": self.receiver_state,
             "peer_name": self.peer_name,
@@ -57,6 +65,23 @@ class StatusSnapshot:
             "candidate_generation": self.candidate_generation,
             "candidate_count": self.candidate_count,
         }
+        if self.battery_supported is not None:
+            data["battery_supported"] = self.battery_supported
+        if self.battery_percent is not None or self.battery_supported is not None:
+            data["battery_percent"] = self.battery_percent
+        if self.modifiers_supported is not None:
+            data["modifiers_supported"] = self.modifiers_supported
+        if self.modifiers is not None:
+            data["modifiers"] = list(self.modifiers)
+        if self.last_key_supported is not None:
+            data["last_key_supported"] = self.last_key_supported
+        if self.last_key is not None or self.last_key_supported is not None:
+            data["last_key"] = self.last_key
+        if self.mouse_buttons_supported is not None:
+            data["mouse_buttons_supported"] = self.mouse_buttons_supported
+        if self.mouse_buttons is not None:
+            data["mouse_buttons"] = list(self.mouse_buttons)
+        return data
 
 
 @dataclass(slots=True)
@@ -207,6 +232,18 @@ def _optional_int(value: Any, field_name: str) -> int | None:
     return None if value is None else _require_int(value, field_name)
 
 
+def _optional_bool(value: Any, field_name: str) -> bool | None:
+    return None if value is None else _require_bool(value, field_name)
+
+
+def _optional_string_tuple(value: Any, field_name: str) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ProtocolParseError(f"{field_name} must be a list")
+    return tuple(_require_string(item, f"{field_name}[]") for item in value)
+
+
 def parse_candidate_payload(payload: Any) -> Candidate:
     candidate = _require_dict(payload)
     candidate_id = _require_int(candidate.get("candidate_id"), "candidate_id")
@@ -261,6 +298,16 @@ def parse_message_line(line: str) -> Message:
             scan_in_progress=_require_bool(data.get("scan_in_progress"), "scan_in_progress"),
             candidate_generation=_require_int(data.get("candidate_generation"), "candidate_generation"),
             candidate_count=_require_int(data.get("candidate_count"), "candidate_count"),
+            battery_percent=_optional_int(data.get("battery_percent"), "battery_percent"),
+            battery_supported=_optional_bool(data.get("battery_supported"), "battery_supported"),
+            modifiers=_optional_string_tuple(data.get("modifiers"), "modifiers"),
+            modifiers_supported=_optional_bool(data.get("modifiers_supported"), "modifiers_supported"),
+            last_key=_optional_string(data.get("last_key"), "last_key"),
+            last_key_supported=_optional_bool(data.get("last_key_supported"), "last_key_supported"),
+            mouse_buttons=_optional_string_tuple(data.get("mouse_buttons"), "mouse_buttons"),
+            mouse_buttons_supported=_optional_bool(
+                data.get("mouse_buttons_supported"), "mouse_buttons_supported"
+            ),
         )
     if message_type == "candidate_snapshot":
         candidates = data.get("candidates")

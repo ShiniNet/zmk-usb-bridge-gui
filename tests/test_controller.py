@@ -124,6 +124,23 @@ class ControllerTests(unittest.TestCase):
 
         self.assertIsNone(controller.state.last_error)
 
+    def test_status_snapshot_uses_scan_in_progress_field_directly(self) -> None:
+        controller, _ = build_controller()
+
+        controller.apply_message(
+            StatusSnapshot(
+                receiver_state="scanning",
+                peer_name=None,
+                peer_address=None,
+                scan_in_progress=False,
+                candidate_generation=8,
+                candidate_count=0,
+            )
+        )
+
+        self.assertEqual(controller.state.receiver_state, "scanning")
+        self.assertFalse(controller.state.scan_in_progress)
+
     def test_bond_erase_sequence_returns_to_idle_with_empty_candidates(self) -> None:
         controller, _ = build_controller()
         controller.apply_message(
@@ -229,6 +246,89 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(controller.state.receiver_state, "idle")
         self.assertIsNone(controller.state.peer_name)
         self.assertIn("candidate_not_found", controller.state.last_error or "")
+
+    def test_status_snapshot_applies_telemetry_fields(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            StatusSnapshot(
+                receiver_state="connected",
+                peer_name="LaLapadGen2",
+                peer_address="E4:B6:69:12:34:56",
+                scan_in_progress=False,
+                candidate_generation=8,
+                candidate_count=1,
+                battery_percent=81,
+                battery_supported=True,
+                modifiers=("LALT",),
+                modifiers_supported=True,
+                last_key="A",
+                last_key_supported=True,
+                mouse_buttons=("LEFT",),
+                mouse_buttons_supported=True,
+            )
+        )
+
+        self.assertEqual(controller.state.battery_text, "81%")
+        self.assertEqual(controller.state.modifiers_text, "LALT")
+        self.assertEqual(controller.state.last_key_text, "A")
+        self.assertEqual(controller.state.mouse_buttons_text, "LEFT")
+
+    def test_telemetry_update_event_updates_live_values(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            EventMessage(name="connection_state", fields={"state": "connected", "peer_name": "LaLapadGen2"})
+        )
+        controller.apply_message(
+            EventMessage(
+                name="telemetry_update",
+                fields={
+                    "battery_supported": True,
+                    "battery_percent": 63,
+                    "modifiers_supported": True,
+                    "modifiers": ["LCTRL", "LSHIFT"],
+                    "last_key_supported": True,
+                    "last_key": "Enter",
+                    "mouse_buttons_supported": True,
+                    "mouse_buttons": [],
+                },
+            )
+        )
+
+        self.assertEqual(controller.state.battery_text, "63%")
+        self.assertEqual(controller.state.modifiers_text, "LCTRL, LSHIFT")
+        self.assertEqual(controller.state.last_key_text, "Enter")
+        self.assertEqual(controller.state.mouse_buttons_text, "None")
+
+    def test_disconnect_clears_live_telemetry_values(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            StatusSnapshot(
+                receiver_state="connected",
+                peer_name="LaLapadGen2",
+                peer_address="E4:B6:69:12:34:56",
+                scan_in_progress=False,
+                candidate_generation=8,
+                candidate_count=1,
+                battery_percent=81,
+                battery_supported=True,
+                modifiers=("LALT",),
+                modifiers_supported=True,
+            )
+        )
+
+        controller.apply_message(EventMessage(name="connection_state", fields={"state": "idle"}))
+
+        self.assertEqual(controller.state.battery_text, "Disconnected")
+        self.assertEqual(controller.state.modifiers_text, "Disconnected")
+        self.assertTrue(controller.state.battery_supported)
+
+    def test_malformed_telemetry_update_surfaces_error(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            EventMessage(name="telemetry_update", fields={"modifiers": "not-a-list"})
+        )
+
+        self.assertIn("telemetry_update payload was malformed", controller.state.last_error or "")
 
     def test_multiple_pending_commands_keep_busy_until_all_are_acked(self) -> None:
         controller, _ = build_controller()
