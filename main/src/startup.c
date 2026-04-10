@@ -1,3 +1,4 @@
+#include "zmk_usb_bridge_gui/ble_scan.h"
 #include "zmk_usb_bridge_gui/startup.h"
 
 #include "zmk_usb_bridge_gui/protocol.h"
@@ -33,6 +34,10 @@ void zmk_usb_bridge_gui_startup_run(void)
     int err;
 
     zmk_usb_bridge_gui_state_init();
+    err = zmk_usb_bridge_gui_ble_init();
+    if (err != 0) {
+        LOG_ERR("Bluetooth init failed: %d", err);
+    }
 
     err = zmk_usb_bridge_gui_usb_channel_init();
     if (err != 0) {

@@ -48,9 +48,15 @@ struct zmk_usb_bridge_gui_state {
 void zmk_usb_bridge_gui_state_init(void);
 const struct zmk_usb_bridge_gui_state *zmk_usb_bridge_gui_state_get(void);
 void zmk_usb_bridge_gui_state_prepare_scan(void);
-bool zmk_usb_bridge_gui_state_publish_scan_candidate(void);
-bool zmk_usb_bridge_gui_state_scan_has_pending_candidates(void);
 void zmk_usb_bridge_gui_state_complete_scan(void);
+const struct zmk_usb_bridge_gui_candidate *zmk_usb_bridge_gui_state_observe_scan_candidate(
+    const char *ble_address,
+    const char *display_name,
+    bool connectable,
+    bool has_hid_service,
+    bool has_keyboard_appearance,
+    int rssi,
+    int last_seen_ms);
 bool zmk_usb_bridge_gui_state_select_candidate(int candidate_id);
 void zmk_usb_bridge_gui_state_connect_candidate(void);
 void zmk_usb_bridge_gui_state_set_connected(void);
