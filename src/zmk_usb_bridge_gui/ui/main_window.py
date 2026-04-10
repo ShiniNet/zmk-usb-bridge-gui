@@ -4,9 +4,7 @@ import importlib
 import sys
 from typing import Sequence
 
-from ..protocol import PROTOCOL_CHANNEL, PROTOCOL_PRODUCT
-
-DEFAULT_RECEIVER_VID_PID_ALLOWLIST = ((0x2FE3, 0x0012),)
+from ..runtime import AppRuntime
 
 
 def _load_qt():
@@ -15,17 +13,18 @@ def _load_qt():
         qtcore = importlib.import_module("PySide6.QtCore")
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "PySide6 is required to launch the GUI. Install the optional 'gui' dependency group first."
+            "PySide6 is required to launch the GUI. Run `uv sync` first."
         ) from exc
     return widgets, qtcore
 
 
 def build_main_window():
     widgets, qtcore = _load_qt()
+    runtime = AppRuntime()
 
     window = widgets.QMainWindow()
     window.setWindowTitle("zmk-usb-bridge-gui")
-    window.resize(960, 560)
+    window.resize(1040, 640)
 
     central = widgets.QWidget(window)
     root = widgets.QVBoxLayout(central)
@@ -35,8 +34,7 @@ def build_main_window():
     title = widgets.QLabel("zmk-usb-bridge-gui")
     title.setStyleSheet("font-size: 22px; font-weight: 700;")
     subtitle = widgets.QLabel(
-        "Desktop app skeleton for the ZMK USB bridge GUI PoC. "
-        "Discovery and protocol parsing are wired, but receiver control is still stubbed."
+        "Receiver status, candidate discovery, and manual connect flow for the ZMK USB bridge GUI PoC."
     )
     subtitle.setWordWrap(True)
 
@@ -46,123 +44,197 @@ def build_main_window():
     summary_layout.setHorizontalSpacing(18)
     summary_layout.setVerticalSpacing(8)
 
-    connection_value = widgets.QLabel("not connected")
-    discovery_value = widgets.QLabel("idle")
-    protocol_value = widgets.QLabel("v1")
+    connection_value = widgets.QLabel("searching")
+    port_value = widgets.QLabel("n/a")
+    protocol_value = widgets.QLabel("n/a")
+    peer_name_value = widgets.QLabel("n/a")
+    receiver_state_value = widgets.QLabel("idle")
     connection_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
-    discovery_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    port_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
     protocol_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    peer_name_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
+    receiver_state_value.setTextInteractionFlags(qtcore.Qt.TextInteractionFlag.TextSelectableByMouse)
 
     summary_layout.addWidget(widgets.QLabel("Connection"), 0, 0)
     summary_layout.addWidget(connection_value, 0, 1)
-    summary_layout.addWidget(widgets.QLabel("Discovery"), 1, 0)
-    summary_layout.addWidget(discovery_value, 1, 1)
-    summary_layout.addWidget(widgets.QLabel("Protocol"), 2, 0)
+    summary_layout.addWidget(widgets.QLabel("Receiver Port"), 1, 0)
+    summary_layout.addWidget(port_value, 1, 1)
+    summary_layout.addWidget(widgets.QLabel("Protocol Version"), 2, 0)
     summary_layout.addWidget(protocol_value, 2, 1)
+    summary_layout.addWidget(widgets.QLabel("Peer Name"), 3, 0)
+    summary_layout.addWidget(peer_name_value, 3, 1)
+    summary_layout.addWidget(widgets.QLabel("Receiver State"), 4, 0)
+    summary_layout.addWidget(receiver_state_value, 4, 1)
 
-    ports_view = widgets.QPlainTextEdit()
-    ports_view.setReadOnly(True)
-    ports_view.setPlaceholderText("Serial discovery results will appear here.")
+    candidates_group = widgets.QGroupBox("Candidates")
+    candidates_layout = widgets.QVBoxLayout(candidates_group)
+    candidates_layout.setContentsMargins(12, 12, 12, 12)
+    candidates_layout.setSpacing(8)
+
+    candidates_table = widgets.QTableWidget(0, 4)
+    candidates_table.setHorizontalHeaderLabels(["Display Name", "Address", "RSSI", "Tier"])
+    candidates_table.setSelectionBehavior(widgets.QAbstractItemView.SelectionBehavior.SelectRows)
+    candidates_table.setSelectionMode(widgets.QAbstractItemView.SelectionMode.SingleSelection)
+    candidates_table.setEditTriggers(widgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+    candidates_table.verticalHeader().setVisible(False)
+    header = candidates_table.horizontalHeader()
+    header.setSectionResizeMode(0, widgets.QHeaderView.ResizeMode.Stretch)
+    header.setSectionResizeMode(1, widgets.QHeaderView.ResizeMode.Stretch)
+    header.setSectionResizeMode(2, widgets.QHeaderView.ResizeMode.ResizeToContents)
+    header.setSectionResizeMode(3, widgets.QHeaderView.ResizeMode.ResizeToContents)
+    candidates_layout.addWidget(candidates_table)
+
+    error_frame = widgets.QFrame()
+    error_layout = widgets.QVBoxLayout(error_frame)
+    error_layout.setContentsMargins(12, 12, 12, 12)
+    error_layout.setSpacing(6)
+    error_label_title = widgets.QLabel("Last Error")
+    error_label_title.setStyleSheet("font-weight: 600;")
+    error_value = widgets.QLabel("None")
+    error_value.setWordWrap(True)
+    error_layout.addWidget(error_label_title)
+    error_layout.addWidget(error_value)
 
     controls = widgets.QHBoxLayout()
-    refresh_button = widgets.QPushButton("Refresh port discovery")
-    refresh_button.setDefault(True)
-    clear_button = widgets.QPushButton("Clear")
+    scan_button = widgets.QPushButton("Scan")
+    refresh_button = widgets.QPushButton("Refresh")
+    connect_button = widgets.QPushButton("Connect")
+    bond_erase_button = widgets.QPushButton("Bond Erase")
+    retry_button = widgets.QPushButton("Retry")
+    scan_button.setDefault(True)
+    controls.addWidget(scan_button)
     controls.addWidget(refresh_button)
-    controls.addWidget(clear_button)
+    controls.addWidget(connect_button)
+    controls.addWidget(bond_erase_button)
+    controls.addWidget(retry_button)
     controls.addStretch(1)
 
     status_bar = widgets.QStatusBar()
     window.setStatusBar(status_bar)
 
-    def is_gui_port(candidate) -> bool:
-        return (
-            candidate.hello_verified
-            and candidate.hello_product == PROTOCOL_PRODUCT
-            and candidate.hello_channel == PROTOCOL_CHANNEL
-        )
-
-    def refresh_ports() -> None:
-        try:
-            from ..serial_discovery import (
-                DiscoveryConfig,
-                SerialDiscoveryError,
-                discover_receiver_ports,
-                format_receiver_port,
-            )
-        except ImportError as exc:  # pragma: no cover - dependency absence is expected in this environment.
-            discovery_value.setText("unavailable")
-            ports_view.setPlainText(f"Serial discovery unavailable: {exc}")
-            status_bar.showMessage("serial discovery unavailable")
+    def update_candidate_selection_from_table() -> None:
+        selected_items = candidates_table.selectedItems()
+        if not selected_items:
+            runtime.select_candidate(None)
             return
+        row = selected_items[0].row()
+        candidate_id = candidates_table.item(row, 0).data(qtcore.Qt.ItemDataRole.UserRole)
+        runtime.select_candidate(candidate_id)
 
-        try:
-            candidates = discover_receiver_ports(
-                DiscoveryConfig(vid_pid_allowlist=DEFAULT_RECEIVER_VID_PID_ALLOWLIST),
-                probe_hello=True,
-            )
-        except SerialDiscoveryError as exc:
-            discovery_value.setText("unavailable")
-            ports_view.setPlainText(str(exc))
-            status_bar.showMessage("serial discovery unavailable")
-            return
-        if not candidates:
-            discovery_value.setText("0 candidates")
-            connection_value.setText("receiver not found")
-            protocol_value.setText("n/a")
-            ports_view.setPlainText("No serial ports matched the receiver scaffold.")
-            status_bar.showMessage("no serial ports found")
-            return
-
-        gui_candidates = [candidate for candidate in candidates if is_gui_port(candidate)]
-        other_candidates = [candidate for candidate in candidates if not is_gui_port(candidate)]
-
-        lines = [format_receiver_port(candidate) for candidate in gui_candidates]
-        if other_candidates:
-            if lines:
-                lines.append("")
-            lines.append("Ignored non-GUI ports:")
-            lines.extend(format_receiver_port(candidate) for candidate in other_candidates)
-
-        ports_view.setPlainText(
-            "\n".join(lines) if lines else "No GUI control port replied to hello."
-        )
-
-        if not gui_candidates:
-            discovery_value.setText("0 gui port(s)")
-            connection_value.setText("receiver not verified")
-            protocol_value.setText("n/a")
-            status_bar.showMessage("no GUI control port verified")
-            return
-
-        if len(gui_candidates) == 1:
-            connection_value.setText("receiver detected")
+    def update_ui() -> None:
+        state = runtime.state
+        if state.discovery_state == "attached":
+            connection_text = "receiver attached"
+        elif state.discovery_state == "multiple_receivers":
+            connection_text = "multiple receivers detected"
+        elif state.discovery_state == "receiver_not_found":
+            connection_text = "receiver not found"
+        elif state.discovery_state == "discovering":
+            connection_text = "searching"
+        elif state.discovery_state == "disconnected":
+            connection_text = "receiver disconnected"
         else:
-            connection_value.setText("multiple receivers")
+            connection_text = state.discovery_detail
 
-        first_protocol_version = gui_candidates[0].hello_protocol_version
-        protocol_value.setText(
-            f"v{first_protocol_version}" if first_protocol_version is not None else "n/a"
+        connection_value.setText(connection_text)
+        port_value.setText(state.receiver_port or "n/a")
+        protocol_value.setText(f"v{state.protocol_version}" if state.protocol_version is not None else "n/a")
+        peer_name_value.setText(state.peer_name or "n/a")
+        receiver_state_value.setText(state.receiver_state)
+        error_value.setText(state.last_error or "None")
+
+        candidates_table.blockSignals(True)
+        candidates_table.setRowCount(len(state.candidate_list))
+        for row, candidate in enumerate(state.candidate_list):
+            name_item = widgets.QTableWidgetItem(candidate.display_label)
+            name_item.setData(qtcore.Qt.ItemDataRole.UserRole, candidate.candidate_id)
+            address_item = widgets.QTableWidgetItem(candidate.ble_address)
+            rssi_item = widgets.QTableWidgetItem("" if candidate.rssi is None else str(candidate.rssi))
+            tier_item = widgets.QTableWidgetItem(candidate.tier_label)
+            candidates_table.setItem(row, 0, name_item)
+            candidates_table.setItem(row, 1, address_item)
+            candidates_table.setItem(row, 2, rssi_item)
+            candidates_table.setItem(row, 3, tier_item)
+
+        selected_candidate = state.selected_candidate
+        if selected_candidate is not None:
+            for row in range(candidates_table.rowCount()):
+                item = candidates_table.item(row, 0)
+                if item is not None and item.data(qtcore.Qt.ItemDataRole.UserRole) == selected_candidate.candidate_id:
+                    candidates_table.selectRow(row)
+                    break
+        candidates_table.blockSignals(False)
+
+        scan_button.setEnabled(state.attached and not state.busy)
+        refresh_button.setEnabled(state.attached and not state.busy)
+        connect_button.setEnabled(state.attached and state.selected_candidate is not None and not state.busy)
+        bond_erase_button.setEnabled(state.attached and not state.busy)
+        retry_button.setEnabled(not state.attached)
+
+        if state.discovery_state == "multiple_receivers" and state.multiple_receiver_ports:
+            status_bar.showMessage(
+                "Multiple receivers detected: " + ", ".join(state.multiple_receiver_ports)
+            )
+        else:
+            status_bar.showMessage(state.discovery_detail)
+
+    def on_scan_clicked() -> None:
+        runtime.scan_start()
+        update_ui()
+
+    def on_refresh_clicked() -> None:
+        runtime.refresh()
+        update_ui()
+
+    def on_connect_clicked() -> None:
+        runtime.connect_selected()
+        update_ui()
+
+    def on_bond_erase_clicked() -> None:
+        answer = widgets.QMessageBox.question(
+            window,
+            "Bond Erase",
+            "Erase receiver bonds and return to idle state?",
         )
-        discovery_value.setText(f"{len(gui_candidates)} gui port(s)")
-        status_bar.showMessage(f"verified {len(gui_candidates)} GUI control port(s)")
+        if answer != widgets.QMessageBox.StandardButton.Yes:
+            return
+        runtime.bond_erase()
+        update_ui()
 
-    def clear_ports() -> None:
-        ports_view.clear()
-        discovery_value.setText("idle")
-        status_bar.showMessage("cleared")
+    def on_retry_clicked() -> None:
+        runtime.retry_discovery()
+        update_ui()
 
-    refresh_button.clicked.connect(refresh_ports)
-    clear_button.clicked.connect(clear_ports)
+    def pump_runtime() -> None:
+        runtime.tick()
+        update_ui()
+
+    scan_button.clicked.connect(on_scan_clicked)
+    refresh_button.clicked.connect(on_refresh_clicked)
+    connect_button.clicked.connect(on_connect_clicked)
+    bond_erase_button.clicked.connect(on_bond_erase_clicked)
+    retry_button.clicked.connect(on_retry_clicked)
+    candidates_table.itemSelectionChanged.connect(update_candidate_selection_from_table)
 
     root.addWidget(title)
     root.addWidget(subtitle)
     root.addWidget(summary)
     root.addLayout(controls)
-    root.addWidget(ports_view, 1)
+    root.addWidget(candidates_group, 1)
+    root.addWidget(error_frame)
     window.setCentralWidget(central)
-    window.setStatusTip("Skeleton GUI for the zmk-usb-bridge-gui PoC.")
-    refresh_ports()
+    window.setStatusTip("Phase 1 GUI for the zmk-usb-bridge-gui PoC.")
+
+    poll_timer = qtcore.QTimer(window)
+    poll_timer.setInterval(150)
+    poll_timer.timeout.connect(pump_runtime)
+    poll_timer.start()
+
+    app = widgets.QApplication.instance()
+    if app is not None:
+        app.aboutToQuit.connect(runtime.shutdown)
+
+    pump_runtime()
     return window
 
 

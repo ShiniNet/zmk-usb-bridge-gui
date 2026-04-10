@@ -1,0 +1,248 @@
+from __future__ import annotations
+
+import unittest
+
+from zmk_usb_bridge_gui.controller import AppController
+from zmk_usb_bridge_gui.protocol import AckMessage, Candidate, CandidateSnapshot, ErrorMessage, EventMessage, StatusSnapshot
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def build_controller() -> tuple[AppController, FakeClock]:
+    clock = FakeClock()
+    return AppController(time_fn=clock), clock
+
+
+class ControllerTests(unittest.TestCase):
+    def test_scan_sequence_updates_candidate_list(self) -> None:
+        controller, _ = build_controller()
+
+        controller.apply_message(EventMessage(name="scan_started", fields={"candidate_generation": 8}))
+        controller.apply_message(
+            CandidateSnapshot(
+                candidate_generation=8,
+                candidates=[
+                    Candidate(
+                        candidate_id=3,
+                        ble_address="E4:B6:69:12:34:56",
+                        display_name="LaLapadGen2",
+                        connectable=True,
+                        has_hid_service=True,
+                        has_keyboard_appearance=True,
+                        rssi=-49,
+                    )
+                ],
+            )
+        )
+        controller.apply_message(
+            EventMessage(
+                name="candidate_upsert",
+                fields={
+                    "candidate_generation": 8,
+                    "candidate": {
+                        "candidate_id": 3,
+                        "ble_address": "E4:B6:69:12:34:56",
+                        "display_name": "LaLapadGen2",
+                        "connectable": True,
+                        "has_hid_service": True,
+                        "has_keyboard_appearance": True,
+                        "rssi": -47,
+                    },
+                },
+            )
+        )
+        controller.apply_message(
+            EventMessage(
+                name="scan_complete",
+                fields={"candidate_generation": 8, "result": "ok", "candidate_count": 1},
+            )
+        )
+
+        self.assertEqual(controller.state.receiver_state, "idle")
+        self.assertFalse(controller.state.scan_in_progress)
+        self.assertEqual(len(controller.state.candidate_list), 1)
+        self.assertEqual(controller.state.candidate_list[0].rssi, -47)
+
+    def test_scan_complete_stopped_clears_scanning_state(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(EventMessage(name="scan_started", fields={"candidate_generation": 4}))
+        controller.apply_message(
+            EventMessage(
+                name="scan_complete",
+                fields={"candidate_generation": 4, "result": "stopped", "candidate_count": 1},
+            )
+        )
+        self.assertEqual(controller.state.receiver_state, "connecting")
+        self.assertFalse(controller.state.scan_in_progress)
+
+    def test_connection_state_preserves_peer_when_fields_are_omitted(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            StatusSnapshot(
+                receiver_state="connected",
+                peer_name="LaLapadGen2",
+                peer_address="E4:B6:69:12:34:56",
+                scan_in_progress=False,
+                candidate_generation=8,
+                candidate_count=1,
+            )
+        )
+        controller.apply_message(EventMessage(name="connection_state", fields={"state": "connecting"}))
+
+        self.assertEqual(controller.state.receiver_state, "connecting")
+        self.assertEqual(controller.state.peer_name, "LaLapadGen2")
+        self.assertEqual(controller.state.peer_address, "E4:B6:69:12:34:56")
+
+    def test_status_snapshot_clears_last_error_after_resync(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            ErrorMessage(
+                request_id=7,
+                name="connect_candidate",
+                code="candidate_not_found",
+                message="candidate_id not found",
+            )
+        )
+        self.assertIsNotNone(controller.state.last_error)
+
+        controller.apply_message(
+            StatusSnapshot(
+                receiver_state="idle",
+                peer_name=None,
+                peer_address=None,
+                scan_in_progress=False,
+                candidate_generation=8,
+                candidate_count=0,
+            )
+        )
+
+        self.assertIsNone(controller.state.last_error)
+
+    def test_bond_erase_sequence_returns_to_idle_with_empty_candidates(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            CandidateSnapshot(
+                candidate_generation=2,
+                candidates=[
+                    Candidate(
+                        candidate_id=1,
+                        ble_address="E4:B6:69:12:34:56",
+                        display_name="LaLapadGen2",
+                        connectable=True,
+                        has_hid_service=True,
+                        has_keyboard_appearance=True,
+                        rssi=-49,
+                    )
+                ],
+            )
+        )
+        controller.apply_message(EventMessage(name="bonds_cleared", fields={"cleared_count": 1}))
+        controller.apply_message(
+            StatusSnapshot(
+                receiver_state="idle",
+                peer_name=None,
+                peer_address=None,
+                scan_in_progress=False,
+                candidate_generation=2,
+                candidate_count=0,
+            )
+        )
+        controller.apply_message(CandidateSnapshot(candidate_generation=2, candidates=[]))
+
+        self.assertEqual(controller.state.receiver_state, "idle")
+        self.assertIsNone(controller.state.peer_name)
+        self.assertEqual(controller.state.candidate_list, [])
+
+    def test_scan_watchdog_timeout_requests_recovery(self) -> None:
+        controller, clock = build_controller()
+        controller.apply_message(EventMessage(name="scan_started", fields={"candidate_generation": 9}))
+        clock.now += 13.0
+
+        expired = controller.expire_scan_watchdog(12.0)
+
+        self.assertTrue(expired)
+        self.assertEqual(controller.state.receiver_state, "idle")
+        self.assertIsNotNone(controller.state.last_error)
+
+    def test_error_message_surfaces_stale_generation(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            ErrorMessage(
+                request_id=3,
+                name="connect_candidate",
+                code="stale_candidate_generation",
+                message="candidate_generation is stale",
+            )
+        )
+
+        self.assertIn("stale_candidate_generation", controller.state.last_error or "")
+
+    def test_connection_error_keeps_idle_state(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            EventMessage(
+                name="connection_state",
+                fields={"state": "idle", "code": "connect_busy", "message": "connect in progress"},
+            )
+        )
+
+        self.assertEqual(controller.state.receiver_state, "idle")
+        self.assertIn("connect_busy", controller.state.last_error or "")
+
+    def test_connect_success_reaches_connected(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            EventMessage(name="connection_state", fields={"state": "connecting", "peer_name": None, "peer_address": None})
+        )
+        controller.apply_message(
+            EventMessage(
+                name="connection_state",
+                fields={
+                    "state": "connected",
+                    "peer_name": "LaLapadGen2",
+                    "peer_address": "E4:B6:69:12:34:56",
+                },
+            )
+        )
+
+        self.assertEqual(controller.state.receiver_state, "connected")
+        self.assertEqual(controller.state.peer_name, "LaLapadGen2")
+
+    def test_connect_failure_returns_to_idle(self) -> None:
+        controller, _ = build_controller()
+        controller.apply_message(
+            EventMessage(name="connection_state", fields={"state": "connecting", "peer_name": None, "peer_address": None})
+        )
+        controller.apply_message(
+            EventMessage(
+                name="connection_state",
+                fields={"state": "idle", "code": "candidate_not_found", "message": "candidate_id not found"},
+            )
+        )
+
+        self.assertEqual(controller.state.receiver_state, "idle")
+        self.assertIsNone(controller.state.peer_name)
+        self.assertIn("candidate_not_found", controller.state.last_error or "")
+
+    def test_multiple_pending_commands_keep_busy_until_all_are_acked(self) -> None:
+        controller, _ = build_controller()
+        controller.build_command("get_status")
+        controller.build_command("get_candidates")
+
+        self.assertTrue(controller.state.busy)
+
+        controller.apply_message(AckMessage(request_id=1, name="get_status", accepted=True))
+        self.assertTrue(controller.state.busy)
+
+        controller.apply_message(AckMessage(request_id=2, name="get_candidates", accepted=True))
+        self.assertFalse(controller.state.busy)
+
+
+if __name__ == "__main__":
+    unittest.main()

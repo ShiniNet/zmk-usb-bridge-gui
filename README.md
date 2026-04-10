@@ -29,10 +29,17 @@
 
 この repository には、現在の PoC 実装の土台として使っている最小 desktop app skeleton を含めています。
 
-- 起動: `python -m zmk_usb_bridge_gui gui`
-- 依存付き起動: `python -m zmk_usb_bridge_gui discover --probe`
-- Windows 配布用 build: `pyinstaller packaging/zmk-usb-bridge-gui.spec`
+標準のローカル開発手順:
 
-`PySide6` と `pyserial` は optional dependency として扱っています。module import や protocol module の確認は
-依存が無くても行えます。GUI 実行には `gui` extra が必要で、serial discovery を CLI / GUI から使うには
-`serial` extra が必要です。
+1. `uv sync --group dev`
+2. `uv run python -m zmk_usb_bridge_gui`
+3. `uv run python -m zmk_usb_bridge_gui discover --probe`
+4. `uv run python -m unittest discover -s tests -v`
+
+Windows 配布用 build:
+
+1. `uv sync --group build`
+2. `uv run pyinstaller packaging/zmk-usb-bridge-gui.spec`
+
+`PySide6` と `pyserial` は desktop app の通常依存として `uv sync` で入る前提です。
+追加の build tool だけを `build` group に分けています。

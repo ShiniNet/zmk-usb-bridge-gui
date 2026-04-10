@@ -169,14 +169,10 @@ Message: TypeAlias = (
 )
 
 
-def serialize_message(message: Message) -> str:
+def serialize_message_line(message: Message) -> str:
     """Serialize a protocol message as a single UTF-8 JSON line."""
 
-    return dumps(message.to_dict(), ensure_ascii=False, separators=(",", ":"))
-
-
-def serialize_message_line(message: Message) -> str:
-    return f"{serialize_message(message)}\n"
+    return f"{dumps(message.to_dict(), ensure_ascii=False, separators=(',', ':'))}\n"
 
 
 def _require_dict(payload: Any) -> dict[str, Any]:
@@ -211,7 +207,7 @@ def _optional_int(value: Any, field_name: str) -> int | None:
     return None if value is None else _require_int(value, field_name)
 
 
-def _parse_candidate(payload: Any) -> Candidate:
+def parse_candidate_payload(payload: Any) -> Candidate:
     candidate = _require_dict(payload)
     candidate_id = _require_int(candidate.get("candidate_id"), "candidate_id")
     ble_address = _require_string(candidate.get("ble_address"), "ble_address")
@@ -272,7 +268,7 @@ def parse_message_line(line: str) -> Message:
             raise ProtocolParseError("candidates must be a list")
         return CandidateSnapshot(
             candidate_generation=_require_int(data.get("candidate_generation"), "candidate_generation"),
-            candidates=[_parse_candidate(candidate) for candidate in candidates],
+            candidates=[parse_candidate_payload(candidate) for candidate in candidates],
         )
     if message_type == "command":
         request_id = _require_int(data.get("request_id"), "request_id")

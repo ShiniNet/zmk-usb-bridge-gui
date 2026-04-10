@@ -41,6 +41,8 @@ class DiscoveryConfig:
     baudrate: int = DEFAULT_BAUDRATE
     probe_timeout_s: float = DEFAULT_PROBE_TIMEOUT_S
     retry_interval_s: float = 2.0
+    preferred_serial_number: str | None = None
+    preferred_device_path: str | None = None
 
 
 def _load_list_ports():
@@ -88,6 +90,23 @@ def _matches_allowlist(port: SerialPortInfo, allowlist: Sequence[tuple[int, int]
     return any((port.vid, port.pid) == item for item in allowlist)
 
 
+def _port_preference_rank(
+    port: SerialPortInfo,
+    *,
+    preferred_serial_number: str | None,
+    preferred_device_path: str | None,
+) -> tuple[int, int, str]:
+    serial_match = preferred_serial_number is not None and port.serial_number == preferred_serial_number
+    path_match = preferred_device_path is not None and (
+        port.location == preferred_device_path or port.device == preferred_device_path
+    )
+    return (
+        0 if serial_match else 1,
+        0 if path_match else 1,
+        port.device.lower(),
+    )
+
+
 def probe_gui_hello(
     device: str,
     *,
@@ -119,7 +138,15 @@ def discover_receiver_ports(
 
     config = config or DiscoveryConfig()
     candidates: list[ReceiverPortCandidate] = []
-    for port in list_serial_ports():
+    ports = sorted(
+        list_serial_ports(),
+        key=lambda port: _port_preference_rank(
+            port,
+            preferred_serial_number=config.preferred_serial_number,
+            preferred_device_path=config.preferred_device_path,
+        ),
+    )
+    for port in ports:
         vid_pid_match = _matches_allowlist(port, config.vid_pid_allowlist)
         candidate = ReceiverPortCandidate(port=port, vid_pid_match=vid_pid_match)
         if probe_hello and vid_pid_match:
@@ -134,7 +161,11 @@ def discover_receiver_ports(
         key=lambda item: (
             not item.vid_pid_match,
             not item.hello_verified,
-            item.port.device.lower(),
+            *_port_preference_rank(
+                item.port,
+                preferred_serial_number=config.preferred_serial_number,
+                preferred_device_path=config.preferred_device_path,
+            ),
         )
     )
     return candidates

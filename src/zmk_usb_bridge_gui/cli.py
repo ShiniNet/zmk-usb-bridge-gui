@@ -4,7 +4,8 @@ import argparse
 from typing import Sequence
 
 from . import __version__
-from .app import DiscoverOptions, run_discovery, run_gui
+from .serial_discovery import DiscoveryConfig, discover_receiver_ports, format_receiver_port
+from .ui import launch_gui
 
 
 def _parse_vidpid(value: str) -> tuple[int, int]:
@@ -49,16 +50,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.command == "discover":
-        options = DiscoverOptions(
-            probe_hello=bool(args.probe),
-            vid_pid_allowlist=tuple(args.vidpid),
-            timeout_s=float(args.timeout),
-            baudrate=int(args.baudrate),
-        )
         try:
-            lines = run_discovery(options)
+            candidates = discover_receiver_ports(
+                DiscoveryConfig(
+                    vid_pid_allowlist=tuple(args.vidpid),
+                    probe_timeout_s=float(args.timeout),
+                    baudrate=int(args.baudrate),
+                ),
+                probe_hello=bool(args.probe),
+            )
         except RuntimeError as exc:
             parser.exit(2, f"{exc}\n")
+        lines = [format_receiver_port(candidate) for candidate in candidates]
         if not lines:
             print("No serial ports matched the receiver scaffold.")
             return 0
@@ -68,7 +71,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "gui" or args.command is None:
         try:
-            return run_gui([parser.prog])
+            return launch_gui([parser.prog])
         except RuntimeError as exc:
             parser.exit(2, f"{exc}\n")
 
