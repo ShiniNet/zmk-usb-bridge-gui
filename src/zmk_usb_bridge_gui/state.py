@@ -107,6 +107,31 @@ class AppState:
         return bool(self.pending_command_names) or self.receiver_state in {"scanning", "connecting"}
 
     @property
+    def can_scan(self) -> bool:
+        return self.attached and not self.busy
+
+    @property
+    def can_refresh(self) -> bool:
+        return self.attached and not self.busy
+
+    @property
+    def can_connect_selected(self) -> bool:
+        return (
+            self.attached
+            and self.selected_candidate is not None
+            and not self.busy
+            and self.receiver_state != "connected"
+        )
+
+    @property
+    def can_bond_erase(self) -> bool:
+        return self.attached and not self.busy
+
+    @property
+    def can_retry(self) -> bool:
+        return not self.attached
+
+    @property
     def selected_candidate(self) -> CandidateView | None:
         if self.selected_candidate_id is None:
             return None

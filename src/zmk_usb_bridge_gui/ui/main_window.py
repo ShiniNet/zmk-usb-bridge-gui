@@ -165,11 +165,11 @@ def build_main_window():
                     break
         candidates_table.blockSignals(False)
 
-        scan_button.setEnabled(state.attached and not state.busy)
-        refresh_button.setEnabled(state.attached and not state.busy)
-        connect_button.setEnabled(state.attached and state.selected_candidate is not None and not state.busy)
-        bond_erase_button.setEnabled(state.attached and not state.busy)
-        retry_button.setEnabled(not state.attached)
+        scan_button.setEnabled(state.can_scan)
+        refresh_button.setEnabled(state.can_refresh)
+        connect_button.setEnabled(state.can_connect_selected)
+        bond_erase_button.setEnabled(state.can_bond_erase)
+        retry_button.setEnabled(state.can_retry)
 
         if state.discovery_state == "multiple_receivers" and state.multiple_receiver_ports:
             status_bar.showMessage(

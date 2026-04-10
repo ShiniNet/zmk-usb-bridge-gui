@@ -105,7 +105,9 @@
 - `display_name` が無い candidate は `Unnamed HID device` と表示する
 - `Tier B` は `keyboard appearance unverified` が分かる文言で表示する
 - 操作ボタンは `Scan`、`Refresh`、`Connect`、`Bond Erase`、`Retry` を持つ
-- `Connect` は候補選択時のみ有効化し、`Retry` は未 attach 時だけ有効化する
+- `Scan`、`Refresh`、`Bond Erase` は `attach 済み` かつ `non-busy` の間だけ有効化する
+- `Connect` は `attach 済み`、`non-busy`、候補選択済み、かつ `receiver_state != connected` のときだけ有効化する
+- `Retry` は未 attach 時だけ有効化する
 - `Last Error` を常設し、複数 receiver 検知時は status bar に port 一覧を表示してよい
 
 ### Validation Evidence
