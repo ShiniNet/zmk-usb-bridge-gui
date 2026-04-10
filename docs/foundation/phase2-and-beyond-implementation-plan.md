@@ -101,6 +101,7 @@
 - summary 領域に telemetry を無理なく追加できる layout へ整理する
 - 現行 `Refresh`、watchdog、再探索戦略が実 firmware でも過不足ないかを再評価する
 - `hello.firmware_version` を実 version 表示へつなぎ、観測ログとの突合をしやすくする
+- `debug-log-foundation.md` に沿って、`GUI / receiver / keyboard` の統合 capture を最小構成で追加する
 
 ### 7. Test And Validation Expansion
 
@@ -208,6 +209,7 @@
 - protocol 正本: [`protocol-v1.md`](protocol-v1.md)
 - candidate 公開条件: [`candidate-listing-policy.md`](candidate-listing-policy.md)
 - desktop app 前提: [`desktop-app-foundation.md`](desktop-app-foundation.md)
+- debug log 収集方針: [`debug-log-foundation.md`](debug-log-foundation.md)
 - test 投資方針: [`testing-policy.md`](testing-policy.md)
 - PoC 判定基準: [`poc-evaluation.md`](poc-evaluation.md)
 - Phase 1 の観測結果: [`../validation/phase1-validation-log.md`](../validation/phase1-validation-log.md)

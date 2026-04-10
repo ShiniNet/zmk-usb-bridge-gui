@@ -12,6 +12,7 @@
 - protocol の正本は [`protocol-v1.md`](protocol-v1.md)
 - candidate 評価と GUI 公開モデルの正本は [`candidate-listing-policy.md`](candidate-listing-policy.md)
 - desktop app 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md)
+- 実機デバッグ時の統合 log 収集方針の正本は [`debug-log-foundation.md`](debug-log-foundation.md)
 - `Phase 2` 以降の残タスクと実装順の正本は [`phase2-and-beyond-implementation-plan.md`](phase2-and-beyond-implementation-plan.md)
 - テスト投資の優先順位と追加基準の正本は [`testing-policy.md`](testing-policy.md)
 - `PoC` の `pass / hold / fail` 条件の正本は [`poc-evaluation.md`](poc-evaluation.md)
@@ -152,6 +153,7 @@
 - 実装言語は PoC 速度を優先し、`Python + PySide6` を第一実装とする
 - ただし利用者体験を考え、PoC 段階から最終的に `EXE` 化しやすい構成を優先する
 - 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md) とする
+- 実機観測向けの `GUI / receiver / keyboard` 統合 log 収集方針は [`debug-log-foundation.md`](debug-log-foundation.md) を正本とする
 
 ## Firmware Direction
 

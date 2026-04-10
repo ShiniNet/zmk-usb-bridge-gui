@@ -4,6 +4,7 @@
 
 - desktop app の技術スタックと `COM port` 自動検出方式を固定する
 - `Windows 優先 PoC` を最短で成立させるための実装前提を明文化する
+- 実機デバッグ時に desktop app が担う `log capture` の責務境界を明確にする
 
 ## Technology Stack
 
@@ -70,6 +71,13 @@
 - repository 直下に desktop app 用 `pyproject.toml` を置き、`uv sync` で依存を入れる
 - ローカル起動は `uv run python -m zmk_usb_bridge_gui` を標準入口とする
 - 開発中の receiver 接続確認は `hello -> status_snapshot -> candidate_snapshot` の成立を最初のチェックにする
+
+## Debug Capture Boundary
+
+- desktop app は必要に応じて `GUI app event`、`receiver GUI protocol`、`receiver debug serial`、`keyboard debug serial` を同時収集してよい
+- ただし `GUI protocol port` を log capture のために別 open してはならない
+- `receiver debug port` と `keyboard debug port` は GUI 制御 port とは別 reader として扱う
+- log record の schema、保存形式、session 単位の運用は [`debug-log-foundation.md`](debug-log-foundation.md) を正本とする
 
 ## Current Phase 1 Desktop App Contract
 
