@@ -14,6 +14,62 @@
 - receiver との常時接続 session、受信 loop、command 送信、候補一覧 UI、再接続制御、テストは未実装
 - receiver firmware 側には desktop app bring-up 用の `stub protocol` があり、app 側は stub 相手に先行実装できる
 
+## Current Implementation Assessment
+
+- 以下は repository 上の `desktop app` 実装と test をもとにした現時点の棚卸しであり、`Current State Summary` の初版記述より進んだ状態を反映する
+- `serial_discovery.py`、`session.py`、`controller.py`、`runtime.py`、`ui/main_window.py`、`tests/` が存在し、`Phase 1` の土台実装は概ね入っている
+- `./.venv/bin/python -m unittest discover -s tests -v` は通過しており、protocol / state / controller / runtime / session の主要 contract は自動 test で一通り守られている
+
+### 既にコード化されているもの
+
+- `VID/PID prefilter + hello 応答確認` による GUI 用 `COM port` 候補の絞り込み
+- `SerialSession` による open / close、reader loop、line-delimited JSON 受信、command 送信、切断検知
+- `hello`、`status_snapshot`、`candidate_snapshot`、`ack`、`error`、`event` の parse / state 反映
+- `2 秒周期` の再探索、単一 receiver 自動 attach、複数 receiver 検知、切断後 rediscovery
+- `Connection`、`Receiver Port`、`Protocol Version`、`Peer Name`、`Receiver State`、候補一覧、`Scan`、`Refresh`、`Connect`、`Bond Erase`、`Retry` を持つ `Phase 1` GUI
+- candidate の公開条件、`Tier A -> Tier B -> RSSI -> last_seen` の sort、`12 件上限`
+- `scan_complete(result=stopped)`、`stale generation`、scan watchdog timeout、disconnect recovery の主要 state 遷移 test
+
+### 残タスクの扱い
+
+- 現時点の主な残りは `desktop app の基盤実装` よりも、`stub / 実機での操作確認`、`Windows 実機 validation`、`firmware 側との摺り合わせ` に寄っている
+- したがって以降の優先順位は、`コード未実装の洗い出し` ではなく `Phase 1 Exit Criteria` を閉じるための確認と不足補完を中心に置く
+
+## Remaining Task Backlog
+
+### Priority 1: Stub Bring-up 完了
+
+- `stub protocol` 相手に `hello -> status_snapshot -> candidate_snapshot` の初期同期を GUI 上で確認する
+- `Scan`、`Refresh`、`Connect`、`Bond Erase` の各ボタン操作が stub 応答と整合しているかを手動確認する
+- `scan_complete(result=stopped)` 後に `connecting` 表示へ遷移する導線を GUI で確認する
+- `last error` の表示文言が実運用で追跡しやすいかを確認し、必要なら調整する
+
+### Priority 2: Receiver Firmware との統合確認
+
+- 実機の `candidate_snapshot` が app 想定の field と更新頻度で流れるか確認する
+- 実機の `connect_candidate` 成功系 / 失敗系 code を確認し、GUI の表示文言へ反映する
+- `hello`、`status_snapshot`、`candidate_snapshot` の再送タイミングが current runtime の再同期戦略で十分か確認する
+- `candidate_not_found`、`stale_candidate_generation`、`scan_busy`、`connect_busy` などの実機 error surface を整理する
+
+### Priority 3: Windows 実機 Validation
+
+- `app 起動時` に GUI 用 `COM port` を誤接続せず attach できることを確認する
+- receiver 抜き差し後に `receiver discovery -> reattach` へ戻れることを確認する
+- `LaLapadGen2` を候補一覧に出し、`connect_candidate` から `connected` 到達まで確認する
+- `bond_erase` 後に `idle` と空 candidate 一覧へ戻り、再度 scan / connect に進めることを確認する
+- 接続成立後に HID bridge 側の実入力が破綻していないことを確認する
+
+### Priority 4: Packaging And Review Evidence
+
+- `uv run pyinstaller packaging/zmk-usb-bridge-gui.spec` の build 成功を確認する
+- `poc-evaluation.md` の `Pass / Hold / Fail` 観点に沿って、実機確認結果を記録する
+- `Candidate Discovery`、`Manual Pairing / Connect`、`Bond Erase Recovery`、`COM Port Detection Stability` の結果を review 用に残す
+
+## Suggested Next Slice
+
+- 次の着手単位は `stub bring-up の手動確認 -> Windows 実機 validation -> packaging 確認` の順を推奨する
+- もし追加実装が必要になった場合も、まずは `実機で観測された不足` に限定して補完し、`Deferred After Phase 1` の項目は混ぜない
+
 ## Scope
 
 - 対象は `Windows 優先 PoC` の `desktop app` 側とする
