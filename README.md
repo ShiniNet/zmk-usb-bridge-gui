@@ -44,3 +44,9 @@ Windows 配布用 build:
 
 `PySide6` と `pyserial` は desktop app の通常依存として `uv sync` で入る前提です。
 追加の build tool だけを `build` group に分けています。
+
+`PyInstaller` の成果物は platform ごとに分離されます。
+たとえば Windows 実行時は `dist/windows-x86_64/zmk-usb-bridge-gui/`、
+Linux 実行時は `dist/linux-x86_64/zmk-usb-bridge-gui/` が出力先です。
+これにより、`\\wsl.localhost\...` 配下で Windows build を回したときに
+既存の Linux build 成果物を掃除しようとして失敗する問題を避けます。

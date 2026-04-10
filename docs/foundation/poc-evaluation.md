@@ -20,7 +20,8 @@
 ### 3. Reconnect Stability
 
 - 初回 pairing 成功後、keyboard 側電源の off/on もしくは一時切断から `15 秒以内` に bonded reconnect へ戻れる
-- 確認方法: 1 回以上の切断復帰試験で、GUI が `connected` に戻ることを確認する
+- 確認方法: `PoC Phase 1` の pass 判定では、少なくとも `1 回` の切断復帰試験で GUI が `connected` に戻ることを確認する
+- 補足: 成功率の安定性評価は `Hold Criteria` 側の `3 回試して 1 回以上失敗する` を基準に切り分ける
 
 ### 4. Bond Erase Recovery
 

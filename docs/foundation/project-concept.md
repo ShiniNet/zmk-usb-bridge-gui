@@ -13,8 +13,8 @@
 - candidate 評価と GUI 公開モデルの正本は [`candidate-listing-policy.md`](candidate-listing-policy.md)
 - desktop app 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md)
 - テスト投資の優先順位と追加基準の正本は [`testing-policy.md`](testing-policy.md)
-- DesktopApp の実装着手用 checklist は [`implementation-start-checklist.md`](implementation-start-checklist.md)
 - `PoC` の `pass / hold / fail` 条件の正本は [`poc-evaluation.md`](poc-evaluation.md)
+- `Phase 1` の確認結果と review evidence は [`../validation/phase1-validation-log.md`](../validation/phase1-validation-log.md)
 
 ## Project Boundary
 
@@ -105,9 +105,6 @@
 
 - 理想は `ZMK keyboard だけ` を一覧表示対象にすることだが、`無改造必須` のため完全判定は前提にしない
 - PoC では、候補一覧表示時点で `できるだけ keyboard らしい BLE HID` に絞る
-- 最低条件の第一候補は `connectable advertisement` と `HID service`
-- `keyboard appearance` は強い補助条件として使う
-- `local name` は表示用と補助判断に使ってよい
 - 現行 `NoGUI` 版のような `allowlist` は GUI 版 PoC では使わない
 - 候補一覧は `receiver が自動接続するための内部候補` ではなく、`GUI で利用者に見せる候補` として扱う
 - 最終採用は `利用者選択` と `接続後 validation` の両方を通した相手だけに限定する
@@ -138,25 +135,12 @@
 
 ### Initial Message Examples
 
-- 以下の例は `protocol v1` の代表例であり、詳細は [`protocol-v1.md`](protocol-v1.md) を参照する
+- 以下の例は `GUI port を見つけて初期同期する` イメージをつかむための最小例であり、詳細な message set と sequence は [`protocol-v1.md`](protocol-v1.md) を参照する
 
 ```json
 {"type":"hello","product":"zmk-usb-bridge-gui","protocol_version":1,"channel":"gui"}
 {"type":"status_snapshot","receiver_state":"idle","peer_name":null,"peer_address":null,"scan_in_progress":false,"candidate_generation":7,"candidate_count":0}
 {"type":"candidate_snapshot","candidate_generation":7,"candidates":[]}
-{"type":"command","request_id":16,"name":"scan_start"}
-{"type":"ack","request_id":16,"name":"scan_start","accepted":true}
-{"type":"event","name":"scan_started","candidate_generation":8}
-{"type":"event","name":"candidate_upsert","candidate_generation":8,"candidate":{"candidate_id":3,"ble_address":"E4:B6:69:12:34:56","display_name":"LaLapadGen2","connectable":true,"has_hid_service":true,"has_keyboard_appearance":true,"rssi":-49}}
-{"type":"event","name":"scan_complete","candidate_generation":8,"result":"ok","candidate_count":1}
-{"type":"command","request_id":17,"name":"connect_candidate","candidate_generation":8,"candidate_id":3}
-{"type":"ack","request_id":17,"name":"connect_candidate","accepted":true}
-{"type":"event","name":"connection_state","state":"connecting","peer_name":null,"peer_address":null}
-{"type":"event","name":"connection_state","state":"connected","peer_name":"LaLapadGen2","peer_address":"E4:B6:69:12:34:56"}
-{"type":"error","request_id":17,"name":"connect_candidate","code":"candidate_not_found","message":"candidate_id not found"}
-{"type":"command","request_id":18,"name":"bond_erase"}
-{"type":"ack","request_id":18,"name":"bond_erase","accepted":true}
-{"type":"event","name":"bonds_cleared","cleared_count":1}
 ```
 
 ## Desktop App Direction

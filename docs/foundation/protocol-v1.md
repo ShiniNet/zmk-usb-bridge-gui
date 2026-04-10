@@ -44,7 +44,7 @@ receiver が GUI port open 後に自発送信する。COM port 自動検出と p
 
 - `type`: `hello`
 - `product`: `zmk-usb-bridge-gui`
-- `protocol_version`: `1`
+- `protocol_version`: `integer`（現行値は `1`）
 - `channel`: `gui`
 
 任意 field:
@@ -107,6 +107,11 @@ receiver の現在状態を GUI に同期するための full snapshot。`hello`
 任意 field:
 
 - `last_seen_ms`
+
+`last_seen_ms` の意味:
+
+- receiver ローカルな相対時刻の `ms` とし、絶対時刻や host 時刻との対応は持たない
+- GUI は `同じ receiver session` 内での並び順補助にだけ使い、絶対時刻表示や session をまたぐ比較には使わない
 
 例:
 
@@ -195,7 +200,8 @@ receiver が command を受理できなかったときに返す。
 意味:
 
 - 新しい scan window を開始したことを表す
-- GUI は同 generation の `candidate_snapshot` を受けたら一覧を初期化する
+- GUI は `scan_started` を受けた時点で新しい generation へ切り替えて一覧を初期化してよい
+- 追加で `candidate_snapshot` を受けたら、その generation の authoritative view として一覧を置き換える
 
 例:
 
@@ -393,8 +399,10 @@ request:
 
 状態ルール:
 
+- `receiver_state=idle` でも、同じ generation の `candidate_id` がまだ有効なら `connect_candidate` を受理してよい
 - `receiver_state=scanning` の間に、同じ generation の `candidate_id` への `connect_candidate` を送ってよい
 - receiver はその場合 scan を停止して connect へ進み、必要なら `scan_complete(result=stopped)` を送る
+- `receiver_state=connected` など新しい connect 開始を受けられない状態では `invalid_state` を返す
 
 ### `bond_erase`
 

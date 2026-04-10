@@ -63,6 +63,7 @@
 - 同一候補を再観測した場合は、`RSSI`、`last_seen_ms`、`display_name` を新しい情報で更新する
 - `display_name` は `null` より非 `null` を優先して保持してよい
 - 同名でも `BLE address` が異なる候補は別個体として扱う
+- `last_seen_ms` は receiver ローカルな相対時刻として扱い、GUI では `新しい順` の並び替え補助にだけ使う
 
 ## Public Candidate Model For GUI
 
@@ -76,6 +77,7 @@
 - `has_keyboard_appearance`
 - `rssi`
 - `last_seen_ms` は取得できる場合のみ付与してよい
+- `last_seen_ms` の基準は host wall-clock ではなく receiver ローカル時刻でよい
 
 GUI 側の表示原則:
 

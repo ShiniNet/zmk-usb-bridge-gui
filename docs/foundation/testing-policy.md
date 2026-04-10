@@ -98,5 +98,5 @@
 - `protocol` の正本は [`protocol-v1.md`](protocol-v1.md)
 - candidate 公開条件の正本は [`candidate-listing-policy.md`](candidate-listing-policy.md)
 - desktop app の attach / discovery 前提は [`desktop-app-foundation.md`](desktop-app-foundation.md)
-- 実装タスクの一覧は [`implementation-start-checklist.md`](implementation-start-checklist.md)
+- `Phase 1` の確認結果と review evidence は [`../validation/phase1-validation-log.md`](../validation/phase1-validation-log.md)
 - ただし test の投資判断と優先順位の正本は **この document** とする
