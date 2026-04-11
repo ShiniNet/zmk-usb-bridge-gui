@@ -5,6 +5,7 @@
 - `Phase 1` 完了後の現状を整理し、実装完了までの残タスクを 1 つの document にまとめる
 - `receiver firmware`、`desktop app`、`protocol`、`validation` の依存関係をそろえ、次の着手順を固定する
 - `PoC 実装がどこまで終われば completion とみなすか` を明文化する
+- この document は実装中だけ参照する一時 plan とし、完了後は確定した内容を各正本 document へ移して役目を終える
 
 ## This Document Defines
 
@@ -53,7 +54,7 @@
 ### 2. Receiver Firmware Stub Replacement
 
 - 前提:
-  - firmware 実装前提は [`project-concept.md`](project-concept.md) の `Initial Firmware Bring-up Assumptions` を正本とし、現行の独立 `Zephyr project` 構成で進める
+  - firmware 実装前提は [`../foundation/project-concept.md`](../foundation/project-concept.md) の `Initial Firmware Bring-up Assumptions` を正本とし、現行の独立 `Zephyr project` 構成で進める
 - `CDC ACM(2 instance)` の現行 skeleton は維持しつつ、中身を実動作へ置き換える
 - 実装対象:
   - BLE central scan の bounded window 実装
@@ -61,7 +62,7 @@
   - `BLE address` 主キーの candidate cache
   - `candidate_generation` と `candidate_id` の実運用
   - `candidate_snapshot + candidate_upsert + scan_complete` の実イベント化
-- `candidate-listing-policy.md` の Tier 判定と上限 `12 件` を firmware / app 両方で同じ前提にそろえる
+- [`../foundation/candidate-listing-policy.md`](../foundation/candidate-listing-policy.md) の Tier 判定と上限 `12 件` を firmware / app 両方で同じ前提にそろえる
 - 固定 `default_candidate` と擬似 state 遷移を排除し、実観測に基づく state 更新へ置き換える
 
 ### 3. Manual Pairing / Connect / Bond Lifecycle
@@ -205,11 +206,11 @@
 
 ## Related Documents
 
-- project 全体前提: [`project-concept.md`](project-concept.md)
-- protocol 正本: [`protocol-v1.md`](protocol-v1.md)
-- candidate 公開条件: [`candidate-listing-policy.md`](candidate-listing-policy.md)
-- desktop app 前提: [`desktop-app-foundation.md`](desktop-app-foundation.md)
-- debug log 収集方針: [`debug-log-foundation.md`](debug-log-foundation.md)
-- test 投資方針: [`testing-policy.md`](testing-policy.md)
-- PoC 判定基準: [`poc-evaluation.md`](poc-evaluation.md)
+- project 全体前提: [`../foundation/project-concept.md`](../foundation/project-concept.md)
+- protocol 正本: [`../foundation/protocol-v1.md`](../foundation/protocol-v1.md)
+- candidate 公開条件: [`../foundation/candidate-listing-policy.md`](../foundation/candidate-listing-policy.md)
+- desktop app 前提: [`../foundation/desktop-app-foundation.md`](../foundation/desktop-app-foundation.md)
+- debug log 収集方針: [`../foundation/debug-log-foundation.md`](../foundation/debug-log-foundation.md)
+- test 投資方針: [`../foundation/testing-policy.md`](../foundation/testing-policy.md)
+- PoC 判定基準: [`../foundation/poc-evaluation.md`](../foundation/poc-evaluation.md)
 - Phase 1 の観測結果: [`../validation/phase1-validation-log.md`](../validation/phase1-validation-log.md)

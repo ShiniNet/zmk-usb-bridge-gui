@@ -332,7 +332,7 @@
 ## Subsystem-Local Dependency Order
 
 - これは project 全体の phase 順ではなく、debug log subsystem 内だけの依存順を表す
-- project 全体の実装順と優先度は [`phase2-and-beyond-implementation-plan.md`](phase2-and-beyond-implementation-plan.md) を正本とする
+- project 全体の実装順と優先度は [`../plans/phase2-and-beyond-implementation-plan.md`](../plans/phase2-and-beyond-implementation-plan.md) を現行 plan として参照する
 
 1. `LogRecord` schema と `jsonl writer` を追加する
 2. `GUI protocol tx/rx tap` を `SerialSession` に差し込む
@@ -365,5 +365,5 @@
 - 全体前提: [`project-concept.md`](project-concept.md)
 - desktop app 構成と COM port 方針: [`desktop-app-foundation.md`](desktop-app-foundation.md)
 - GUI 制御 protocol: [`protocol-v1.md`](protocol-v1.md)
-- 実装順: [`phase2-and-beyond-implementation-plan.md`](phase2-and-beyond-implementation-plan.md)
+- 実装順: [`../plans/phase2-and-beyond-implementation-plan.md`](../plans/phase2-and-beyond-implementation-plan.md)
 - 実機確認結果: [`../validation/phase1-validation-log.md`](../validation/phase1-validation-log.md)

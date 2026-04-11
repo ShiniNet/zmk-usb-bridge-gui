@@ -13,7 +13,7 @@
 - candidate 評価と GUI 公開モデルの正本は [`candidate-listing-policy.md`](candidate-listing-policy.md)
 - desktop app 技術スタックと `COM port` 検出方式の正本は [`desktop-app-foundation.md`](desktop-app-foundation.md)
 - 実機デバッグ時の統合 log 収集方針の正本は [`debug-log-foundation.md`](debug-log-foundation.md)
-- `Phase 2` 以降の残タスクと実装順の正本は [`phase2-and-beyond-implementation-plan.md`](phase2-and-beyond-implementation-plan.md)
+- `Phase 2` 以降の残タスクと実装順の現行 plan は [`../plans/phase2-and-beyond-implementation-plan.md`](../plans/phase2-and-beyond-implementation-plan.md)
 - テスト投資の優先順位と追加基準の正本は [`testing-policy.md`](testing-policy.md)
 - `PoC` の `pass / hold / fail` 条件の正本は [`poc-evaluation.md`](poc-evaluation.md)
 - `Phase 1` の確認結果と review evidence は [`../validation/phase1-validation-log.md`](../validation/phase1-validation-log.md)

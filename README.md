@@ -24,7 +24,7 @@
 
 - 設計文書の入口: [docs/README.md](docs/README.md)
 - 基本構想: [docs/foundation/project-concept.md](docs/foundation/project-concept.md)
-- Phase2以降の実装計画: [docs/foundation/phase2-and-beyond-implementation-plan.md](docs/foundation/phase2-and-beyond-implementation-plan.md)
+- Phase2以降の実装計画: [docs/plans/phase2-and-beyond-implementation-plan.md](docs/plans/phase2-and-beyond-implementation-plan.md)
 - テスト方針: [docs/foundation/testing-policy.md](docs/foundation/testing-policy.md)
 
 ## Desktop App Skeleton
