@@ -1,6 +1,5 @@
 #include "zmk_usb_bridge_gui/startup.h"
 
-#include "zmk_usb_bridge_gui/ble_scan.h"
 #include "zmk_usb_bridge_gui/protocol.h"
 #include "zmk_usb_bridge_gui/runtime_state.h"
 #include "zmk_usb_bridge_gui/usb_channel.h"
@@ -54,10 +53,6 @@ void zmk_usb_bridge_gui_startup_run(void)
             boot_snapshot_sent = false;
             host_command_seen = false;
             next_boot_snapshot_at_ms = 0;
-
-            if (gui_ready) {
-                (void)zmk_usb_bridge_gui_ble_init();
-            }
         }
 
         if (gui_ready &&

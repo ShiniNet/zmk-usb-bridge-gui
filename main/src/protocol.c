@@ -1,3 +1,4 @@
+#include "zmk_usb_bridge_gui/ble_connect.h"
 #include "zmk_usb_bridge_gui/ble_scan.h"
 #include "zmk_usb_bridge_gui/protocol.h"
 
@@ -19,11 +20,6 @@
 #define OPTIONAL_DETAIL_SUFFIX_BUFFER_SIZE \
     (JSON_SHORT_VALUE_BUFFER_SIZE + JSON_TEXT_VALUE_BUFFER_SIZE + 32)
 #define ZMK_USB_BRIDGE_GUI_FIRMWARE_VERSION "0.1.0"
-#define STUB_CONNECT_COMPLETE_DELAY_MS 300
-
-static bool stub_connect_pending;
-static int64_t stub_connect_complete_due_at_ms;
-
 static void emit_line(const char *line);
 
 static bool append_json_fragment(
@@ -267,12 +263,6 @@ static void format_battery_percent_json(
     }
 
     snprintk(buffer, buffer_size, "%d", state->battery_percent);
-}
-
-static void reset_stub_async_sequences(void)
-{
-    stub_connect_pending = false;
-    stub_connect_complete_due_at_ms = 0;
 }
 
 static int extract_integer_field(const char *line, const char *field_name, int *value)
@@ -748,7 +738,8 @@ static void handle_scan_start(int request_id)
         return;
     }
 
-    if (strcmp(state->receiver_state, "connecting") == 0 || stub_connect_pending) {
+    if (strcmp(state->receiver_state, "connecting") == 0 ||
+        zmk_usb_bridge_gui_ble_connect_is_busy()) {
         zmk_usb_bridge_gui_protocol_emit_error(
             request_id,
             "scan_start",
@@ -780,6 +771,7 @@ static void handle_scan_start(int request_id)
     zmk_usb_bridge_gui_protocol_emit_ack(request_id, "scan_start");
     zmk_usb_bridge_gui_protocol_emit_scan_started(state->candidate_generation);
     zmk_usb_bridge_gui_protocol_emit_candidate_snapshot(state);
+    zmk_usb_bridge_gui_ble_scan_kick_after_response();
 }
 
 static void handle_connect_candidate(const char *line, int request_id)
@@ -787,7 +779,8 @@ static void handle_connect_candidate(const char *line, int request_id)
     int candidate_generation = -1;
     int candidate_id = -1;
     const struct zmk_usb_bridge_gui_state *state;
-    int64_t now_ms;
+    const struct zmk_usb_bridge_gui_candidate *candidate;
+    int err;
 
     if (extract_integer_field(line, "\"candidate_generation\"", &candidate_generation) != 0 ||
         extract_integer_field(line, "\"candidate_id\"", &candidate_id) != 0) {
@@ -800,7 +793,8 @@ static void handle_connect_candidate(const char *line, int request_id)
     }
 
     state = zmk_usb_bridge_gui_state_get();
-    if (strcmp(state->receiver_state, "connecting") == 0 || stub_connect_pending) {
+    if (strcmp(state->receiver_state, "connecting") == 0 ||
+        zmk_usb_bridge_gui_ble_connect_is_busy()) {
         zmk_usb_bridge_gui_protocol_emit_error(
             request_id,
             "connect_candidate",
@@ -827,7 +821,8 @@ static void handle_connect_candidate(const char *line, int request_id)
         return;
     }
 
-    if (!zmk_usb_bridge_gui_state_select_candidate(candidate_id)) {
+    candidate = zmk_usb_bridge_gui_state_get_candidate_by_id(candidate_id);
+    if (candidate == NULL || !zmk_usb_bridge_gui_state_select_candidate(candidate_id)) {
         zmk_usb_bridge_gui_protocol_emit_error(
             request_id,
             "connect_candidate",
@@ -836,16 +831,25 @@ static void handle_connect_candidate(const char *line, int request_id)
         return;
     }
 
-    zmk_usb_bridge_gui_protocol_emit_ack(request_id, "connect_candidate");
     if (strcmp(state->receiver_state, "scanning") == 0) {
         zmk_usb_bridge_gui_ble_scan_cancel("stopped", NULL);
     }
+
+    err = zmk_usb_bridge_gui_ble_connect_start(candidate);
+    if (err != 0) {
+        zmk_usb_bridge_gui_state_fail_connect();
+        zmk_usb_bridge_gui_protocol_emit_error(
+            request_id,
+            "connect_candidate",
+            "connect_failed",
+            "BLE connection could not be started");
+        return;
+    }
+
+    zmk_usb_bridge_gui_protocol_emit_ack(request_id, "connect_candidate");
     zmk_usb_bridge_gui_state_connect_candidate();
     zmk_usb_bridge_gui_protocol_emit_connection_state(
         "connecting", NULL, NULL, NULL, NULL);
-    now_ms = k_uptime_get();
-    stub_connect_pending = true;
-    stub_connect_complete_due_at_ms = now_ms + STUB_CONNECT_COMPLETE_DELAY_MS;
 }
 
 static void handle_bond_erase(int request_id)
@@ -855,7 +859,7 @@ static void handle_bond_erase(int request_id)
 
     zmk_usb_bridge_gui_protocol_emit_ack(request_id, "bond_erase");
     zmk_usb_bridge_gui_ble_scan_cancel("stopped", NULL);
-    reset_stub_async_sequences();
+    (void)zmk_usb_bridge_gui_ble_bond_erase();
     cleared_count = zmk_usb_bridge_gui_state_reset_bonds();
     zmk_usb_bridge_gui_protocol_emit_connection_state(
         "idle", NULL, NULL, NULL, NULL);
@@ -915,20 +919,6 @@ int zmk_usb_bridge_gui_protocol_handle_line(const char *line)
 
 void zmk_usb_bridge_gui_protocol_poll(void)
 {
-    const struct zmk_usb_bridge_gui_state *state = zmk_usb_bridge_gui_state_get();
-    int64_t now_ms = k_uptime_get();
-
     zmk_usb_bridge_gui_ble_poll();
-    state = zmk_usb_bridge_gui_state_get();
-
-    if (stub_connect_pending &&
-        strcmp(state->receiver_state, "connecting") == 0 &&
-        now_ms >= stub_connect_complete_due_at_ms) {
-        zmk_usb_bridge_gui_state_set_connected();
-        state = zmk_usb_bridge_gui_state_get();
-        zmk_usb_bridge_gui_protocol_emit_connection_state(
-            "connected", state->peer_name, state->peer_address, NULL, NULL);
-        zmk_usb_bridge_gui_protocol_emit_telemetry_update(state);
-        stub_connect_pending = false;
-    }
+    zmk_usb_bridge_gui_ble_connect_poll();
 }

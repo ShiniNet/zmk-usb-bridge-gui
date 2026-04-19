@@ -14,8 +14,10 @@
 #define GUI_TX_RING_SIZE 16384
 #define LOG_TX_RING_SIZE 2048
 #define TX_CHUNK_SIZE 64
-#define GUI_WRITER_STACK_SIZE 1024
+#define GUI_WRITER_STACK_SIZE 2048
 #define LOG_WRITER_STACK_SIZE 1024
+#define GUI_WRITER_THREAD_PRIORITY 8
+#define LOG_WRITER_THREAD_PRIORITY 12
 #define LINE_BUFFER_SIZE CONFIG_ZMK_USB_BRIDGE_GUI_PROTOCOL_BUFFER_SIZE
 
 static const struct device *const gui_dev = DEVICE_DT_GET(GUI_CDC_NODE);
@@ -157,13 +159,13 @@ int zmk_usb_bridge_gui_usb_channel_init(void)
         &gui_writer_thread,
         gui_writer_stack,
         K_THREAD_STACK_SIZEOF(gui_writer_stack),
-        5);
+        GUI_WRITER_THREAD_PRIORITY);
     start_async_channel_writer(
         &log_channel,
         &log_writer_thread,
         log_writer_stack,
         K_THREAD_STACK_SIZEOF(log_writer_stack),
-        5);
+        LOG_WRITER_THREAD_PRIORITY);
 
     return usb_enable(NULL);
 }

@@ -76,6 +76,12 @@ static int candidate_tier(const struct zmk_usb_bridge_gui_candidate *candidate)
     return 2;
 }
 
+bool zmk_usb_bridge_gui_candidate_is_public(
+    const struct zmk_usb_bridge_gui_candidate *candidate)
+{
+    return candidate_tier(candidate) < 2;
+}
+
 static bool candidate_is_storage_eligible(const struct zmk_usb_bridge_gui_candidate *candidate)
 {
     return candidate != NULL &&
@@ -225,7 +231,7 @@ static void rebuild_public_candidate_list(void)
         struct scan_candidate_record *record = &scan_candidate_cache[index];
         size_t insert_index;
 
-        if (!record->in_use || candidate_tier(&record->candidate) >= 2) {
+        if (!record->in_use || !zmk_usb_bridge_gui_candidate_is_public(&record->candidate)) {
             continue;
         }
 
@@ -443,6 +449,14 @@ void zmk_usb_bridge_gui_state_set_connected(void)
     runtime_state.peer_address = candidate != NULL ? candidate->ble_address : NULL;
     runtime_state.bonded_peer_count = candidate != NULL ? 1 : 0;
     clear_stub_telemetry();
+}
+
+void zmk_usb_bridge_gui_state_fail_connect(void)
+{
+    runtime_state.receiver_state = "idle";
+    runtime_state.scan_in_progress = false;
+    runtime_state.active_candidate_id = -1;
+    clear_peer_connection();
 }
 
 int zmk_usb_bridge_gui_state_reset_bonds(void)

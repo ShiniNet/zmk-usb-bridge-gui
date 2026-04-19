@@ -247,6 +247,32 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.state.discovery_state, "receiver_not_found")
         self.assertFalse(runtime.state.attached)
 
+    def test_bootloader_port_surfaces_flash_hint(self) -> None:
+        clock = FakeClock()
+        bootloader_candidate = ReceiverPortCandidate(
+            port=SerialPortInfo(
+                device="COM6",
+                vid=0x2886,
+                pid=0x0045,
+                serial_number="08CC99D9331ADDD5",
+            ),
+            vid_pid_match=False,
+        )
+        runtime, capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [bootloader_candidate],
+            session_factory=FakeSession,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.discovery_state == "receiver_not_found")
+
+        self.assertFalse(runtime.state.attached)
+        self.assertIn("bootloader mode", runtime.state.discovery_detail)
+        self.assertIn("zephyr.uf2", runtime.state.last_error or "")
+        self.assertTrue(
+            any(event == "receiver_bootloader_detected" for event, *_rest in capture.app_events)
+        )
+
     def test_disconnect_returns_to_discovery(self) -> None:
         clock = FakeClock()
         sessions: list[FakeSession] = []

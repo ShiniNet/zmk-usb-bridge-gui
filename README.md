@@ -24,7 +24,8 @@
 
 - desktop app の USB dongle attach / reconnect は、最新 Windows 実機ログで安定化を確認済みです。
 - `GUI 起動 -> dongle 接続 -> attached -> dongle 抜去 -> 再接続 -> attached` まで通過しています。
-- 次の主タスクは receiver firmware 側の `connect_candidate / pairing / bond_erase` を stub から実 BLE lifecycle へ置き換えることです。
+- receiver firmware 側の `connect_candidate` は実 BLE connect、security request、HID service discovery へ接続済みです。
+- 次の主タスクは、最新 firmware の実機 validation と、keyboard input report discovery / subscription から USB HID bridge へ進むことです。
 - 進行中の詳細計画は [docs/plans/phase2-and-beyond-implementation-plan.md](docs/plans/phase2-and-beyond-implementation-plan.md) を参照します。
 
 ## ドキュメント

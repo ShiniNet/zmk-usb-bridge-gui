@@ -294,9 +294,10 @@ receiver が command を受理できなかったときに返す。
 
 - `connect_candidate` 受理後はまず `connecting` を返す
 - 成功時は `connected`
-- 失敗時や切断後は `idle` に戻し、必要なら `code` を添える
+- 失敗時や切断後は `idle` に戻し、必要なら `code` と `message` を添える
 - BLE が予期せず切断された場合も receiver は自発的に `connection_state(state=idle)` を送る
 - `peer_name` と `peer_address` は `idle` 遷移時に `null` へ戻してよい
+- 現行 receiver firmware は `connected` を返す前に、BLE connection、`BT_SECURITY_L2` request、HID service primary discovery の最低限の validation を通す
 
 例:
 
@@ -399,6 +400,10 @@ request:
 備考:
 
 - `scan_start` は新しい `candidate_generation` を発行する
+- receiver は `ack` / `scan_started` を先に返し、Bluetooth init / BLE stack の scan start は後続処理で開始してよい
+- 後続処理で BLE scan start に失敗した場合は `scan_complete(result=error, code=scan_start_failed)` を返す
+- 後続処理で BLE scan start が完了しない場合は `scan_complete(result=error, code=scan_start_timeout)` を返す
+- Bluetooth init が pending scan window 内で ready にならない場合は `scan_complete(result=error, code=bluetooth_init_timeout)` を返す
 - scan 中に再度 `scan_start` を受けた場合は `scan_busy` を返してよい
 - `scan_complete(result=ok)` は bounded scan window の通常終了時に返す
 
@@ -449,6 +454,18 @@ request:
 - `candidate_id` が存在しない場合は `candidate_not_found`
 - すでに別の connect attempt が進行中の場合は `connect_busy`
 - `connected` 状態など、receiver が新しい connect 開始を受けられない状態では `invalid_state`
+- BLE connect 開始前に失敗した場合は command `error(code=connect_failed)` を返してよい
+- BLE connect 開始後の失敗は `connection_state(state=idle, code=...)` で返す
+
+代表的な `connection_state(state=idle)` code:
+
+- `connect_failed`: BLE connection establishment が失敗した
+- `bluetooth_init_failed`: Bluetooth init が失敗した
+- `security_failed`: BLE security / pairing request が失敗した
+- `hid_discovery_failed`: HID service discovery を開始できなかった
+- `hid_service_not_found`: 接続先が HID service を公開していなかった
+- `validation_timeout`: connect 後 validation が timeout した
+- `peer_disconnected`: 接続済み peer が予期せず切断した
 
 状態ルール:
 

@@ -31,6 +31,7 @@
 PoC の手動確認結果、未確認項目、review 用 evidence を置く。
 
 - `validation/phase1-validation-log.md`: `DesktopApp Phase 1` の確認結果と未解決事項の記録
+- `validation/phase2-validation-log.md`: `Phase 2+` の receiver firmware 実装と real BLE lifecycle 検証の記録
 
 ## 読み方と記述ルール
 

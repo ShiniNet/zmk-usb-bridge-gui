@@ -45,11 +45,12 @@ class AppController:
         self.state.multiple_receiver_ports = ()
         self._emit_state_changes(snapshot)
 
-    def mark_receiver_not_found(self) -> None:
+    def mark_receiver_not_found(self, detail: str | None = None) -> None:
         snapshot = self._event_snapshot()
         self._reset_attachment()
         self.state.discovery_state = "receiver_not_found"
-        self.state.discovery_detail = "Receiver not found"
+        self.state.discovery_detail = detail or "Receiver not found"
+        self.state.last_error = detail
         self.state.multiple_receiver_ports = ()
         self._emit_state_changes(snapshot)
 

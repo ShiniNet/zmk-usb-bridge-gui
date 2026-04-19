@@ -35,6 +35,10 @@ from .session import (
 )
 
 DEFAULT_RECEIVER_VID_PID_ALLOWLIST = ((0x2FE3, 0x0012),)
+DEFAULT_RECEIVER_BOOTLOADER_VID_PID_ALLOWLIST = ((0x2886, 0x0045),)
+RECEIVER_BOOTLOADER_DISCOVERY_DETAIL = (
+    "Receiver appears to be in bootloader mode; flash latest zephyr.uf2."
+)
 OPEN_RETRYABLE_ERROR_MARKERS = (
     "permissionerror",
     "access is denied",
@@ -377,8 +381,24 @@ class AppRuntime:
     ) -> None:
         gui_candidates = [candidate for candidate in candidates if self._is_supported_gui_candidate(candidate)]
         if not gui_candidates:
+            bootloader_candidates = self._receiver_bootloader_candidates(candidates)
             self._release_discovery_probe_ports(candidates)
-            self.controller.mark_receiver_not_found()
+            if bootloader_candidates:
+                self._emit_app_event(
+                    "receiver_bootloader_detected",
+                    "lifecycle",
+                    {
+                        "ports": [candidate.port.device for candidate in bootloader_candidates],
+                        "vid_pid": "2886:0045",
+                        "serial_numbers": [
+                            candidate.port.serial_number for candidate in bootloader_candidates
+                        ],
+                    },
+                    RECEIVER_BOOTLOADER_DISCOVERY_DETAIL,
+                )
+                self.controller.mark_receiver_not_found(RECEIVER_BOOTLOADER_DISCOVERY_DETAIL)
+            else:
+                self.controller.mark_receiver_not_found()
             self._schedule_next_discovery()
             return
         if len(gui_candidates) > 1:
@@ -781,3 +801,17 @@ class AppRuntime:
             and candidate.hello_channel == PROTOCOL_CHANNEL
             and candidate.hello_protocol_version == PROTOCOL_VERSION
         )
+
+    @staticmethod
+    def _receiver_bootloader_candidates(
+        candidates: list[ReceiverPortCandidate],
+    ) -> list[ReceiverPortCandidate]:
+        return [
+            candidate
+            for candidate in candidates
+            if (
+                candidate.port.vid,
+                candidate.port.pid,
+            )
+            in DEFAULT_RECEIVER_BOOTLOADER_VID_PID_ALLOWLIST
+        ]

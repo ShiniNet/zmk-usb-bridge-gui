@@ -17,6 +17,7 @@ target_include_directories(app PRIVATE main/include)
 
 target_sources(app PRIVATE
     main/app_main.c
+    main/src/ble_connect.c
     main/src/ble_scan.c
     main/src/protocol.c
     main/src/runtime_state.c

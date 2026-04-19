@@ -58,9 +58,12 @@ const struct zmk_usb_bridge_gui_candidate *zmk_usb_bridge_gui_state_observe_scan
     bool has_keyboard_appearance,
     int rssi,
     int64_t last_seen_ms);
+bool zmk_usb_bridge_gui_candidate_is_public(
+    const struct zmk_usb_bridge_gui_candidate *candidate);
 bool zmk_usb_bridge_gui_state_select_candidate(int candidate_id);
 void zmk_usb_bridge_gui_state_connect_candidate(void);
 void zmk_usb_bridge_gui_state_set_connected(void);
+void zmk_usb_bridge_gui_state_fail_connect(void);
 int zmk_usb_bridge_gui_state_reset_bonds(void);
 const struct zmk_usb_bridge_gui_candidate *zmk_usb_bridge_gui_state_get_candidate_by_index(
     size_t index);
