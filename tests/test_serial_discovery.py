@@ -68,6 +68,11 @@ class CloseBlockingSerial(FakeSerial):
         type(self).release_close.wait(timeout=1.0)
 
 
+class OpenFailingSerial(FakeSerial):
+    def __init__(self, **_kwargs) -> None:
+        raise PermissionError("access denied")
+
+
 class DiagnosticSerial:
     instances: dict[str, "DiagnosticSerial"] = {}
     gui_to_log_ready: dict[str, str] = {}
@@ -224,6 +229,13 @@ class SerialDiscoveryTests(unittest.TestCase):
         self.assertLess(elapsed, 0.30)
         self.assertTrue(result.protocol_verified)
 
+    def test_probe_gui_protocol_records_open_exception(self) -> None:
+        result = probe_gui_protocol("COM8", timeout_s=0.05, serial_factory=OpenFailingSerial)
+
+        self.assertFalse(result.protocol_verified)
+        self.assertEqual(result.failure_exception_class, "PermissionError")
+        self.assertIn("access denied", result.failure_detail or "")
+
     def test_discovery_skips_sibling_probe_after_protocol_is_verified(self) -> None:
         ports = [
             SerialPortInfo(device="COM7", vid=0x2FE3, pid=0x0012, serial_number="receiver-1"),
@@ -258,6 +270,34 @@ class SerialDiscoveryTests(unittest.TestCase):
         self.assertEqual(probe_calls, ["COM7"])
         self.assertEqual(len(candidates), 2)
         self.assertTrue(candidates[0].protocol_verified)
+
+    def test_discovery_trace_includes_probe_failure_detail(self) -> None:
+        ports = [SerialPortInfo(device="COM8", vid=0x2FE3, pid=0x0012)]
+        trace_events: list[tuple[str, dict[str, object]]] = []
+
+        def fake_list_serial_ports() -> list[SerialPortInfo]:
+            return ports
+
+        original_list_serial_ports = discover_receiver_ports.__globals__["list_serial_ports"]
+        discover_receiver_ports.__globals__["list_serial_ports"] = fake_list_serial_ports
+        try:
+            discover_receiver_ports(
+                DiscoveryConfig(vid_pid_allowlist=((0x2FE3, 0x0012),)),
+                probe_hello=True,
+                diagnostic_serial_factory=DiagnosticSerial,
+                trace_fn=lambda event, fields: trace_events.append((event, fields)),
+                probe_protocol_fn=lambda _device, **_kwargs: GuiProtocolProbeResult(
+                    failure_detail="access denied",
+                    failure_exception_class="PermissionError",
+                ),
+            )
+        finally:
+            discover_receiver_ports.__globals__["list_serial_ports"] = original_list_serial_ports
+
+        finished_events = [fields for event, fields in trace_events if event == "discovery_probe_finished"]
+        self.assertEqual(len(finished_events), 1)
+        self.assertEqual(finished_events[0]["probe_failure_exception_class"], "PermissionError")
+        self.assertEqual(finished_events[0]["probe_failure_detail"], "access denied")
 
     def test_discovery_can_identify_gui_port_via_receiver_log_diagnostic(self) -> None:
         ports = [

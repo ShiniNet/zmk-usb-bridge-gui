@@ -20,50 +20,63 @@
   - 最低限の自動 test と `validation` document が対象 contract に追従している
 - completion までの対象外項目は `Out Of Scope Until Completion` を参照する
 
-## Current Snapshot After Phase 1
+## Current Snapshot After Phase 1.5
 
 ### Done
 
 - `desktop app Phase 1` の操作導線は実装済みで、`Windows packaged EXE` でも `attach / candidate list / connect / bond erase / receiver 再接続` まで観測済み
-- `protocol v1`、`candidate listing policy`、`desktop app foundation`、`testing policy` は正本として成立している
+- `protocol v1`、`candidate listing policy`、`desktop app foundation`、`debug log foundation`、`testing policy` は正本として成立している
 - Python 側は `serial discovery`、`session`、`runtime`、`controller`、`ui/main_window` の責務分離と最小 test がある
+- `protocol v1` と desktop app は `battery / modifier / last key / mouse button` の telemetry field と `telemetry_update` event を扱える
+- desktop app の summary には telemetry 表示が入り、`Disconnected`、`Unsupported`、`Pending / Not reported yet` を区別できる
+- desktop app には `GUI app event`、`receiver GUI protocol`、`receiver debug serial`、`keyboard debug serial` を同一 session log に集約する debug capture の土台がある
+- `COM Port Detection Stability` は最新 Windows 実機再検証で pass に戻り、`GUI 起動 -> dongle 接続 -> attached -> dongle 抜去 -> 再接続 -> attached` まで確認済みである
+- receiver firmware は固定 candidate だけの stub から進み、実 BLE active scan、advertisement 解析、`BLE address` 主キーの candidate cache、Tier A/B 相当の公開候補並び替え、`candidate_upsert`、`scan_complete` を持つ
+- local firmware build helper は `UF2` と debug artifact を `artifacts/builds/` へ保存できる
 
 ### Not Done Yet
 
 - `PoC Evaluation` の `Reconnect Stability` は未観測である
-  - ただし現状 firmware は stub で、実 BLE bond / bonded reconnect を持たないため、stub のままではこの項目を close できない
+  - 現状 firmware は実 BLE bond / bonded reconnect を持たないため、この項目はまだ close できない
   - したがって `Reconnect Stability` の pass / hold 判定は `Phase 2` と `Phase 3` の実 firmware 実装後に持ち越す
-- `receiver firmware` は現状まだ stub である
-  - `scan_start` は固定 candidate を返す擬似挙動
+- `receiver firmware` は scan / candidate cache までは実装が進んだが、connect 以降はまだ stub が残っている
   - `connect_candidate` は実 BLE 処理ではなく擬似 `connecting -> connected`
   - `bond_erase` も local state reset 中心で、実 bond 管理の裏付けは未実装
-- `battery / modifier / last key / mouse button` の telemetry は protocol と UI の両方で未着手
+- `battery / modifier / last key / mouse button` は protocol と UI の土台はあるが、実 keyboard / HID report 由来の値にはまだ結び付いていない
 - `USB HID bridge` と `post-connect validation` を含む receiver の本実装は未完了
 
 ## Remaining Workstreams
 
-### 1. Phase 1 Closeout
+### 1. Phase 1.5 Closeout
 
-- `validation/phase1-validation-log.md` の未整理項目を整理する
-- `Reconnect Stability` は stub firmware の範囲外であることを `validation/phase1-validation-log.md` に明記する
-- `receiver not found`、`multiple receivers detected`、`connect_candidate` failure code の観測も補完する
-- `Phase 1` で close する項目と、real firmware が入るまで保留する項目を固定する
-- `Open Questions` のうち real firmware 前提のものは `Phase 2+` へ carry over する
-- closeout 対象は stub firmware で観測できる範囲に限定し、real firmware 前提の `Open Questions` 全件解消までは要求しない
+- `validation/phase1-validation-log.md` には、`Reconnect Stability` が real firmware 前提であることと、Phase 2+ へ carry over する理由を記録済み
+- `Phase 1 / 1.5` で close する項目と、real firmware が入るまで保留する項目は概ね分離済み
+- `COM Port Detection Stability` は `20260419_152258_78ec.jsonl` で reconnect scenario まで pass と判断済み
+- 追加で拾うと有用な補助観測は次のままとする
+  - `receiver not found`
+  - `multiple receivers detected`
+  - 実 firmware の `connect_candidate` failure code
+  - candidate noise と `12 件上限` 周りの実機観測
+- これ以降の closeout は実装 blocker ではなく、Phase 2+ validation の補助作業として扱う
 
-### 2. Receiver Firmware Stub Replacement
+### 2. Receiver Firmware Core Completion
 
 - 前提:
   - firmware 実装前提は [`../foundation/project-concept.md`](../foundation/project-concept.md) の `Initial Firmware Bring-up Assumptions` を正本とし、現行の独立 `Zephyr project` 構成で進める
 - `CDC ACM(2 instance)` の現行 skeleton は維持しつつ、中身を実動作へ置き換える
-- 実装対象:
+- 実装済み:
   - BLE central scan の bounded window 実装
-  - advertisement / scan response の解析
+  - advertisement の解析
   - `BLE address` 主キーの candidate cache
   - `candidate_generation` と `candidate_id` の実運用
   - `candidate_snapshot + candidate_upsert + scan_complete` の実イベント化
+  - 固定 `default_candidate` 依存の candidate listing からの脱却
+- 残実装対象:
+  - 実機 scan での `LaLapadGen2` 表示時間、candidate noise、Tier 判定、`12 件上限` の validation
+  - scan 中断、connect 開始、bond erase、unexpected disconnect と candidate cache の整合確認
+  - 実 firmware の error code 集合と GUI 表示文言の突合
 - [`../foundation/candidate-listing-policy.md`](../foundation/candidate-listing-policy.md) の Tier 判定と上限 `12 件` を firmware / app 両方で同じ前提にそろえる
-- 固定 `default_candidate` と擬似 state 遷移を排除し、実観測に基づく state 更新へ置き換える
+- 残る擬似 state 遷移は `connect_candidate` 以降に限定されるため、次 workstream で実 BLE lifecycle へ置き換える
 
 ### 3. Manual Pairing / Connect / Bond Lifecycle
 
@@ -85,32 +98,30 @@
 
 ### 5. Telemetry Extension
 
-- `battery / modifier / last key / mouse button` を `PoC scope` の completion 項目として追加実装する
-- 先に protocol extension と versioning policy を決める
-  - 既定方針は `protocol v1` の event / optional field 拡張で前方互換を保ち、`protocol_version` は据え置く
-  - ただし既存 message の必須 field や解釈を壊す変更が必要になった場合は `protocol v2` を切る
-  - 既存 `hello / status_snapshot / command / ack / error / event` の枠は維持する
-- firmware 側で未取得値をどう表すかを固定する
-  - `battery`: `null` 許容
-  - `last key` / `mouse button`: transient event と state snapshot のどちらを正とするか整理する
-- desktop app 側では `未取得 / 未対応 / 切断中` を区別して表示する
+- `battery / modifier / last key / mouse button` を `PoC scope` の completion 項目として実値に結び付ける
+- protocol extension と desktop app 表示の土台は先行実装済みで、既定方針は `protocol v1` の event / optional field 拡張のままとする
+- 残実装対象:
+  - firmware 側で `battery` を実 GATT / HID 情報から取得する
+  - `modifier / last key / mouse button` を HID report parsing から更新する
+  - `last key` / `mouse button` を transient event と state snapshot のどちらで扱うかを実入力ベースで確定する
+  - 実値、未取得、未対応、切断中の表示が Windows 実機で破綻しないことを確認する
 
 ### 6. Desktop App Phase 2+
 
 - 実 firmware 応答に合わせて `error surface` を見直す
-- reconnect 中、telemetry 未取得、candidate 空一覧などの表示を `Phase 1` UI から拡張する
-- summary 領域に telemetry を無理なく追加できる layout へ整理する
+- reconnect 中、telemetry 未取得、candidate 空一覧などの表示を実 firmware の挙動に合わせて調整する
+- summary 領域の telemetry 表示は実装済みだが、実値が入った状態での layout と文言を再評価する
 - 現行 `Refresh`、watchdog、再探索戦略が実 firmware でも過不足ないかを再評価する
 - `hello.firmware_version` を実 version 表示へつなぎ、観測ログとの突合をしやすくする
-- `debug-log-foundation.md` に沿って、`GUI / receiver / keyboard` の統合 capture を最小構成で追加する
+- `debug-log-foundation.md` に沿った統合 capture の土台はあるため、実 firmware validation 時に必要な event / field を追加する
 
 ### 7. Test And Validation Expansion
 
 - `testing-policy.md` に従い、守るべき contract が増えた箇所だけ test を拡張する
 - 追加候補:
-  - telemetry event parse / state update
+  - 実 connect / pairing / failure code に対応する controller recovery
   - reconnect sequence と detach / rediscovery の競合
-  - 実 error code に対応する controller の recovery
+  - HID report parsing から telemetry update までの contract
 - `firmware-app` 跨ぎの全面自動化は後回しにしつつ、`stub` 依存が強すぎる箇所は少しずつ integration 化する
 - `validation` は `Phase 1 closeout` と `Phase 2+` の実機観測を分けて記録する
 
@@ -126,21 +137,24 @@
 ### Phase 1.5: Closeout And Risk Lock
 
 - 目的:
-  - stub 状態で観測できる範囲を閉じ、stub 状態では観測できない項目を `Phase 2+` へ正しく送る
+  - stub / partial firmware 状態で観測できる範囲を閉じ、real BLE lifecycle 前提の項目を `Phase 2+` へ正しく送る
 - Exit Criteria:
   - `validation/phase1-validation-log.md` に、`Reconnect Stability` を `Phase 3` へ移す理由と、補助観測項目の扱いが記録されている
   - `Phase 1` で close する項目と `Phase 2+` へ carry over する項目が分離され、real firmware 前提の `Open Questions` が pending と混在していない
+- Status:
+  - achieved
+  - current code / validation document 上、GUI attach / receiver reconnect は Phase 2+ の blocker ではない
 
 ### Phase 2: Real Receiver Core
 
 - 目的:
-  - stub firmware をやめて、実 BLE scan / candidate cache / manual connect の核を成立させる
+  - 実 BLE scan / candidate cache の土台を維持しながら、`connect_candidate` 以降の stub を実 BLE connect / pairing / bond lifecycle へ置き換える
 - Main Deliverables:
-  - 実 scan による `candidate_snapshot`
+  - 実 scan による `candidate_snapshot` / `candidate_upsert` の実機 validation
   - `connect_candidate` の実 connect / pairing
   - `bond_erase` の実 bond reset
 - Exit Criteria:
-  - 固定 candidate ではなく実機観測の候補が GUI に出る
+  - 固定 candidate ではなく実機観測の候補が GUI に出ることを Windows 実機で確認できる
   - `LaLapadGen2` を GUI 選択で実接続できる
 
 ### Phase 3: Reconnect And Bridge Hardening
@@ -159,13 +173,13 @@
 ### Phase 4: Telemetry And UX Expansion
 
 - 目的:
-  - `project concept` にある `battery / modifier / last key / mouse button` 表示を実装する
+  - `project concept` にある `battery / modifier / last key / mouse button` 表示を実 keyboard / HID report 由来の値へ結び付ける
 - Main Deliverables:
-  - telemetry protocol extension
-  - desktop app UI 拡張
+  - firmware 側 telemetry source
+  - desktop app UI の実値表示確認
   - 未取得値 / 非対応値の表示方針
 - Exit Criteria:
-  - 主要 telemetry が GUI に表示される
+  - 主要 telemetry が実入力 / 実 keyboard 状態に追従して GUI に表示される
   - 未取得時も UI が破綻しない
 
 ### Phase 5: Completion Hardening
@@ -183,17 +197,17 @@
 
 ### Priority Order
 
-1. `Phase 1.5 / Workstream 1`: `Phase 1` の未解決項目を棚卸しし、stub firmware の範囲と carry-over 項目を固定する
-2. `Phase 2 / Workstream 2`: firmware の `scan_start / candidate cache / connect_candidate / bond_erase` から stub を外す
-3. `Phase 3 / Workstream 3-4`: `post-connect validation`、bond lifecycle、`USB HID bridge` を実装し、`PoC Evaluation` を本実装ベースで再評価する
-4. `Phase 4 / Workstream 5-6`: telemetry protocol と GUI 表示を追加し、desktop app の実 firmware 追従を仕上げる
-5. `Phase 5 / Workstream 7-8`: test / packaging / validation を `PoC scope` completion に合わせて締める
+1. `Phase 2 / Workstream 2-3`: 実 BLE scan の実機 validation を取りながら、`connect_candidate / pairing / bond_erase` から stub を外す
+2. `Phase 3 / Workstream 3-4`: `post-connect validation`、bond lifecycle、`USB HID bridge` を実装し、`PoC Evaluation` を本実装ベースで再評価する
+3. `Phase 4 / Workstream 5-6`: telemetry を実 keyboard / HID report 由来の値へ接続し、desktop app の実 firmware 追従を仕上げる
+4. `Phase 5 / Workstream 7-8`: test / packaging / validation を `PoC scope` completion に合わせて締める
 
 ### Why This Order
 
-- telemetry を先に足しても、receiver core が stub のままだと価値検証にならない
-- bonded reconnect は本 project の価値仮説に直結するが、現状 stub では観測不能なので、まず real firmware を成立させる必要がある
-- desktop app は Phase 1 で土台があるため、次の主戦場は firmware と protocol extension になる
+- GUI attach / receiver reconnect は最新 Windows 実機ログで pass したため、Phase 2+ では GUI を firmware validation の観測面として使える
+- 実 BLE scan と telemetry UI の土台はすでにあるため、次の価値検証は `connect_candidate` 以降の実 BLE lifecycle に集中する
+- bonded reconnect は本 project の価値仮説に直結するが、実 bond / reconnect が入るまでは観測不能なので、manual connect と bond lifecycle を先に成立させる
+- desktop app は Phase 1.5 で土台があるため、次の主戦場は firmware の connect / HID bridge / reconnect になる
 
 ## Out Of Scope Until Completion
 

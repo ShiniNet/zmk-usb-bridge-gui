@@ -74,6 +74,7 @@ class AppRuntime:
         self._discovery_config = discovery_config or DiscoveryConfig(
             vid_pid_allowlist=DEFAULT_RECEIVER_VID_PID_ALLOWLIST,
             baudrate=DEFAULT_BAUDRATE,
+            keep_probe_port_open_on_success=True,
         )
         self._capture = capture_factory() if capture_factory is not None else LogCaptureCoordinator()
         self._capture.start()
@@ -88,6 +89,8 @@ class AppRuntime:
         self._attach_thread: Thread | None = None
         self._attach_attempt_token = 0
         self._active_attach_token: int | None = None
+        self._active_attach_candidate: ReceiverPortCandidate | None = None
+        self._active_attach_session: SerialSession | None = None
         self._attach_started_at = 0.0
         self._reader_failures: SimpleQueue[tuple[str, str, str | None, SerialPortInfo]] = SimpleQueue()
         self._receiver_debug_reader: SerialTextLogReader | None = None
@@ -389,20 +392,28 @@ class AppRuntime:
         self._start_attach(candidate, baudrate=baudrate)
 
     def _start_attach(self, candidate: ReceiverPortCandidate, *, baudrate: int) -> None:
+        session = self._session_factory()
         self._attach_attempt_token += 1
         token = self._attach_attempt_token
         self._active_attach_token = token
+        self._active_attach_candidate = candidate
+        self._active_attach_session = session
         self._attach_started_at = self._time_fn()
         self._attach_thread = Thread(
             target=self._attach_worker,
-            args=(token, candidate, baudrate),
+            args=(token, candidate, session, baudrate),
             name="receiver-attach",
             daemon=True,
         )
         self._attach_thread.start()
 
-    def _attach_worker(self, token: int, candidate: ReceiverPortCandidate, baudrate: int) -> None:
-        session = self._session_factory()
+    def _attach_worker(
+        self,
+        token: int,
+        candidate: ReceiverPortCandidate,
+        session: SerialSession,
+        baudrate: int,
+    ) -> None:
         if hasattr(session, "set_protocol_tap"):
             session.set_protocol_tap(
                 lambda direction, raw, message, detail: self._protocol_tap(
@@ -411,6 +422,10 @@ class AppRuntime:
                     message=message,
                     detail=detail,
                 )
+            )
+        if hasattr(session, "set_lifecycle_tap"):
+            session.set_lifecycle_tap(
+                lambda event, fields, detail: self._emit_app_event(event, "lifecycle", fields, detail)
             )
         try:
             self._open_discovered_session(
@@ -431,6 +446,8 @@ class AppRuntime:
                 return
 
             if token != self._active_attach_token:
+                if self._active_attach_token is None:
+                    self._attach_thread = None
                 if result_type == "attached":
                     candidate, session = payload
                     self._release_discovery_probe_ports([candidate])
@@ -445,6 +462,8 @@ class AppRuntime:
 
             self._attach_thread = None
             self._active_attach_token = None
+            self._active_attach_candidate = None
+            self._active_attach_session = None
             self._attach_started_at = 0.0
 
             if result_type == "error":
@@ -469,8 +488,18 @@ class AppRuntime:
         if self._time_fn() - self._attach_started_at < ATTACH_OPERATION_TIMEOUT_S:
             return
 
-        self._attach_thread = None
+        candidate = self._active_attach_candidate
+        session = self._active_attach_session
+        if candidate is not None:
+            self._release_discovery_probe_ports([candidate])
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
         self._active_attach_token = None
+        self._active_attach_candidate = None
+        self._active_attach_session = None
         self._attach_started_at = 0.0
         self.controller.mark_discovery_error("Receiver attach timed out")
         self._schedule_next_discovery()

@@ -34,6 +34,8 @@
 - `DTR` 立ち上がり直後の boot snapshot を待つ短い受信優先フェーズを設け、それでも応答が無ければ `get_status` probe を送ってよい
 - sibling CDC port の close が OS 側で長時間 block する観測があるため、desktop app は `probe timeout` を discovery 全体の上限として扱い、1 port の異常で探索全体が数十秒止まらないことを優先する
 - `hello.channel=gui` を返した port だけを GUI 制御用 port として採用する
+- `hello` / protocol 応答で GUI port と確認できた場合は、可能な限りその probe port を閉じずに session attach へ引き継ぐ
+- 保持済み probe port を session attach へ引き継ぐ場合は、`DTR`、buffer reset、`timeout / write_timeout` などの serial re-prepare を行わず、reader / writer thread 起動へ進む
 
 ### GUI CDC と Log CDC の識別
 
@@ -60,6 +62,7 @@
 - 接続済み receiver が抜かれた場合は切断扱いにして自動探索へ戻る
 - 同じ receiver が再列挙されたら、再度 `hello.channel=gui` を確認して再接続する
 - 可能なら `USB serial number` または安定した device path を記憶し、再接続時の優先候補にしてよい
+- Windows 実機 validation では、保持済み probe port をそのまま `attach_open_port` へ渡す経路で `app 起動 -> dongle 接続 -> attached -> dongle 抜去 -> 再接続 -> attached` まで確認済みである
 
 ## USB Assumption For PoC
 
@@ -95,6 +98,8 @@
 - discovery と attach の基本方針は上記 `COM Port Detection Policy` を正本とする
 - `Phase 1` の GUI 実装は、`multiple receivers detected` を手動選択 UI ではなく `1 台に絞って再接続` を促す状態として扱う
 - attach 後は `serial_number` と安定した device path を優先候補として保持し、再接続時の discovery に引き継いでよい
+- attach が timeout した場合は active probe port / session を close し、stale worker が後から成功しても active session として採用しない
+- session attach の lifecycle event は debug capture に残し、実機での port open / thread start 停止箇所を後から追えるようにする
 
 ### Runtime And Recovery Contract
 

@@ -63,6 +63,7 @@ class DiscoveryConfig:
     preferred_serial_number: str | None = None
     preferred_device_path: str | None = None
     enable_gui_ready_diagnostic: bool = False
+    keep_probe_port_open_on_success: bool = False
 
 
 @dataclass(slots=True)
@@ -71,6 +72,8 @@ class GuiProtocolProbeResult:
     protocol_verified: bool = False
     verified_via: str | None = None
     retained_serial_port: object | None = None
+    failure_detail: str | None = None
+    failure_exception_class: str | None = None
 
 
 @dataclass(slots=True)
@@ -90,6 +93,8 @@ def _update_probe_result_from_message(
             protocol_verified=True,
             verified_via="hello",
             retained_serial_port=result.retained_serial_port,
+            failure_detail=result.failure_detail,
+            failure_exception_class=result.failure_exception_class,
         )
     if isinstance(message, StatusSnapshot):
         if not result.protocol_verified:
@@ -97,6 +102,8 @@ def _update_probe_result_from_message(
                 protocol_verified=True,
                 verified_via="status_snapshot",
                 retained_serial_port=result.retained_serial_port,
+                failure_detail=result.failure_detail,
+                failure_exception_class=result.failure_exception_class,
             )
         return result
     if isinstance(message, CandidateSnapshot):
@@ -105,6 +112,8 @@ def _update_probe_result_from_message(
                 protocol_verified=True,
                 verified_via="candidate_snapshot",
                 retained_serial_port=result.retained_serial_port,
+                failure_detail=result.failure_detail,
+                failure_exception_class=result.failure_exception_class,
             )
         return result
     if isinstance(message, AckMessage) and message.request_id == 0 and message.name == "get_status":
@@ -113,6 +122,8 @@ def _update_probe_result_from_message(
                 protocol_verified=True,
                 verified_via="ack",
                 retained_serial_port=result.retained_serial_port,
+                failure_detail=result.failure_detail,
+                failure_exception_class=result.failure_exception_class,
             )
         return result
     if isinstance(message, ErrorMessage) and message.request_id == 0 and message.name == "get_status":
@@ -121,6 +132,8 @@ def _update_probe_result_from_message(
                 protocol_verified=True,
                 verified_via="error",
                 retained_serial_port=result.retained_serial_port,
+                failure_detail=result.failure_detail,
+                failure_exception_class=result.failure_exception_class,
             )
         return result
     return result
@@ -215,8 +228,11 @@ def _probe_gui_protocol_worker(
         if keep_port_open_on_success and result.protocol_verified:
             result.retained_serial_port = serial_port
             serial_port = None
-    except Exception:
-        result = GuiProtocolProbeResult()
+    except Exception as exc:
+        result = GuiProtocolProbeResult(
+            failure_detail=str(exc),
+            failure_exception_class=exc.__class__.__name__,
+        )
     result_queue.put(result)
     if serial_port is not None:
         try:
@@ -496,7 +512,10 @@ def probe_gui_protocol(
     try:
         return result_queue.get_nowait()
     except Empty:
-        return GuiProtocolProbeResult()
+        return GuiProtocolProbeResult(
+            failure_detail="probe worker timed out",
+            failure_exception_class="TimeoutError",
+        )
 
 
 def probe_gui_hello(
@@ -532,7 +551,7 @@ def discover_receiver_ports(
     probe_protocol = probe_protocol_fn or (
         lambda device, **kwargs: probe_gui_protocol(
             device,
-            keep_port_open_on_success=False,
+            keep_port_open_on_success=config.keep_probe_port_open_on_success,
             **kwargs,
         )
     )
@@ -602,6 +621,8 @@ def discover_receiver_ports(
                         ),
                         "protocol_verified": probe_result.protocol_verified,
                         "protocol_verified_via": probe_result.verified_via,
+                        "probe_failure_detail": probe_result.failure_detail,
+                        "probe_failure_exception_class": probe_result.failure_exception_class,
                     },
                 )
             if probe_result.hello is not None:

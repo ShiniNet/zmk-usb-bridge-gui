@@ -30,6 +30,7 @@ class SessionDisconnectedEvent:
 
 SessionEvent = SessionMessageEvent | SessionProtocolErrorEvent | SessionDisconnectedEvent
 SessionProtocolTap = Callable[[str, str, Message | None, str | None], None]
+SessionLifecycleTap = Callable[[str, dict[str, object] | None, str | None], None]
 
 
 def _load_serial() -> type:
@@ -47,10 +48,12 @@ class SerialSession:
         serial_factory: Callable[..., object] | None = None,
         timeout_s: float = 0.2,
         protocol_tap: SessionProtocolTap | None = None,
+        lifecycle_tap: SessionLifecycleTap | None = None,
     ) -> None:
         self._serial_factory = serial_factory or _load_serial()
         self._timeout_s = timeout_s
         self._protocol_tap = protocol_tap
+        self._lifecycle_tap = lifecycle_tap
         self._events: SimpleQueue[SessionEvent] = SimpleQueue()
         self._write_queue: SimpleQueue[bytes | None] = SimpleQueue()
         self._stop_event = Event()
@@ -65,6 +68,9 @@ class SerialSession:
 
     def set_protocol_tap(self, protocol_tap: SessionProtocolTap | None) -> None:
         self._protocol_tap = protocol_tap
+
+    def set_lifecycle_tap(self, lifecycle_tap: SessionLifecycleTap | None) -> None:
+        self._lifecycle_tap = lifecycle_tap
 
     def open(self, device: str, *, baudrate: int = 115200) -> None:
         self.close()
@@ -81,21 +87,40 @@ class SerialSession:
         self._activate_serial_port(device, serial_port, prepare_port=True)
 
     def attach_open_port(self, device: str, serial_port: object) -> None:
+        self._emit_lifecycle("session_attach_open_port_started", {"device": device})
+        self._emit_lifecycle("session_attach_open_port_close_started", {"device": device})
         self.close()
+        self._emit_lifecycle("session_attach_open_port_close_finished", {"device": device})
         self._write_queue = SimpleQueue()
         self._activate_serial_port(device, serial_port, prepare_port=False)
+        self._emit_lifecycle("session_attach_open_port_finished", {"device": device})
 
     def _activate_serial_port(self, device: str, serial_port: object, *, prepare_port: bool) -> None:
+        self._emit_lifecycle(
+            "session_activate_serial_started",
+            {"device": device, "prepare_port": prepare_port},
+        )
         self._prepare_serial_port(serial_port, prepare_port=prepare_port)
+        self._emit_lifecycle(
+            "session_prepare_serial_finished",
+            {"device": device, "prepare_port": prepare_port},
+        )
         self.device = device
         self._serial = serial_port
         self._stop_event.clear()
         self._reader_thread = Thread(target=self._reader_loop, name="receiver-session-reader", daemon=True)
         self._writer_thread = Thread(target=self._writer_loop, name="receiver-session-writer", daemon=True)
+        self._emit_lifecycle("session_reader_thread_starting", {"device": device})
         self._reader_thread.start()
+        self._emit_lifecycle("session_reader_thread_started", {"device": device})
+        self._emit_lifecycle("session_writer_thread_starting", {"device": device})
         self._writer_thread.start()
+        self._emit_lifecycle("session_writer_thread_started", {"device": device})
 
     def _prepare_serial_port(self, serial_port: object, *, prepare_port: bool) -> None:
+        if not prepare_port:
+            return
+
         for attribute_name in ("timeout", "write_timeout"):
             if not hasattr(serial_port, attribute_name):
                 continue
@@ -110,18 +135,28 @@ class SerialSession:
             except Exception:
                 pass
 
-        if prepare_port and hasattr(serial_port, "reset_output_buffer"):
+        if hasattr(serial_port, "reset_output_buffer"):
             try:
                 serial_port.reset_output_buffer()
             except Exception:
                 pass
 
-        if prepare_port and hasattr(serial_port, "dtr"):
+        if hasattr(serial_port, "dtr"):
             try:
                 # Firmware gates the GUI channel on DTR, so assert it before the reader starts.
                 serial_port.dtr = True
             except Exception:
                 pass
+
+    def _emit_lifecycle(
+        self,
+        event: str,
+        fields: dict[str, object] | None = None,
+        detail: str | None = None,
+    ) -> None:
+        if self._lifecycle_tap is None:
+            return
+        self._lifecycle_tap(event, fields, detail)
 
     def close(self) -> None:
         self._stop_event.set()

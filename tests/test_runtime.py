@@ -216,6 +216,24 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(runtime.state.attached)
         self.assertEqual(sessions, [])
 
+    def test_default_runtime_discovery_keeps_verified_probe_port_open(self) -> None:
+        clock = FakeClock()
+        configs = []
+
+        def discover_ports(config, **_kwargs):
+            configs.append(config)
+            return []
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=discover_ports,
+            session_factory=FakeSession,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: len(configs) == 1)
+
+        self.assertTrue(configs[0].keep_probe_port_open_on_success)
+
     def test_mismatched_protocol_port_is_ignored(self) -> None:
         clock = FakeClock()
         runtime, _capture = self._build_runtime(
@@ -381,6 +399,10 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual(runtime.state.discovery_state, "error")
         self.assertEqual(runtime.state.last_error, "Receiver attach timed out")
+        self.assertTrue(probe_serial_port.closed)
+        self.assertIsNone(runtime._active_attach_token)
+        self.assertIsNone(runtime._active_attach_candidate)
+        self.assertIsNone(runtime._active_attach_session)
 
     def test_protocol_verified_sibling_ports_do_not_require_multiple_attachments(self) -> None:
         clock = FakeClock()

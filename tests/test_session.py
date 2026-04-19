@@ -150,20 +150,36 @@ class SessionTests(unittest.TestCase):
             [b'{"type":"command","request_id":1,"name":"get_status"}\n'],
         )
 
-    def test_attach_open_port_reprimes_existing_serial_without_toggling_dtr(self) -> None:
+    def test_attach_open_port_reuses_existing_serial_without_toggling_dtr_or_buffers(self) -> None:
         serial_port = PreopenedSerial()
         serial_port.dtr = True
+        lifecycle_events = []
 
-        session = SerialSession(timeout_s=0.01)
+        session = SerialSession(timeout_s=0.01, lifecycle_tap=lambda event, fields, detail: lifecycle_events.append(event))
         session.attach_open_port("COM5", serial_port)
         time.sleep(0.02)
         session.close()
 
         self.assertTrue(serial_port.dtr)
-        self.assertTrue(serial_port.reset_input_buffer_called)
+        self.assertFalse(serial_port.reset_input_buffer_called)
         self.assertFalse(serial_port.reset_output_buffer_called)
-        self.assertEqual(serial_port.timeout, 0.01)
-        self.assertEqual(serial_port.write_timeout, 0.01)
+        self.assertIsNone(serial_port.timeout)
+        self.assertIsNone(serial_port.write_timeout)
+        self.assertEqual(
+            lifecycle_events,
+            [
+                "session_attach_open_port_started",
+                "session_attach_open_port_close_started",
+                "session_attach_open_port_close_finished",
+                "session_activate_serial_started",
+                "session_prepare_serial_finished",
+                "session_reader_thread_starting",
+                "session_reader_thread_started",
+                "session_writer_thread_starting",
+                "session_writer_thread_started",
+                "session_attach_open_port_finished",
+            ],
+        )
 
     def test_reader_reassembles_partial_lines_before_parsing(self) -> None:
         session = SerialSession(serial_factory=ChunkedLineSerial, timeout_s=0.01)
