@@ -43,6 +43,27 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(parsed.candidates[0].display_name, "LaLapadGen2")
         self.assertEqual(parsed.candidates[0].last_seen_ms, 1234)
 
+    def test_candidate_snapshot_roundtrip_with_large_last_seen_ms(self) -> None:
+        snapshot = CandidateSnapshot(
+            candidate_generation=7,
+            candidates=[
+                Candidate(
+                    candidate_id=3,
+                    ble_address="E4:B6:69:12:34:56",
+                    display_name="LaLapadGen2",
+                    connectable=True,
+                    has_hid_service=True,
+                    has_keyboard_appearance=True,
+                    rssi=-49,
+                    last_seen_ms=4_000_000_000,
+                )
+            ],
+        )
+
+        parsed = parse_message_line(serialize_message_line(snapshot))
+        self.assertIsInstance(parsed, CandidateSnapshot)
+        self.assertEqual(parsed.candidates[0].last_seen_ms, 4_000_000_000)
+
     def test_status_snapshot_roundtrip_with_telemetry_fields(self) -> None:
         snapshot = StatusSnapshot(
             receiver_state="connected",

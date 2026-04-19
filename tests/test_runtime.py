@@ -6,7 +6,7 @@ import unittest
 from zmk_usb_bridge_gui.protocol import HelloMessage
 from zmk_usb_bridge_gui.runtime import AppRuntime
 from zmk_usb_bridge_gui.serial_discovery import ReceiverPortCandidate, SerialPortInfo
-from zmk_usb_bridge_gui.session import SessionDisconnectedEvent
+from zmk_usb_bridge_gui.session import SessionDisconnectedEvent, SessionOpenError
 
 
 class FakeClock:
@@ -20,6 +20,7 @@ class FakeClock:
 class FakeSession:
     def __init__(self) -> None:
         self.open_calls: list[str] = []
+        self.attach_open_port_calls: list[tuple[str, object]] = []
         self.sent_messages = []
         self.events = []
         self.closed = False
@@ -32,6 +33,10 @@ class FakeSession:
     def close(self) -> None:
         self.closed = True
 
+    def attach_open_port(self, device: str, serial_port: object) -> None:
+        self.attach_open_port_calls.append((device, serial_port))
+        self.device = device
+
     def send_message(self, message) -> None:
         self.sent_messages.append(message)
 
@@ -39,6 +44,29 @@ class FakeSession:
         events = list(self.events)
         self.events.clear()
         return events
+
+
+class FlakyOpenSession(FakeSession):
+    def __init__(self) -> None:
+        super().__init__()
+        self.remaining_failures = 1
+
+    def open(self, device: str, *, baudrate: int = 115200) -> None:
+        self.open_calls.append(device)
+        if self.remaining_failures > 0:
+            self.remaining_failures -= 1
+            raise SessionOpenError(
+                f"Could not open receiver port {device}: could not open port '{device}': "
+                "PermissionError(13, 'アクセスが拒否されました。', None, 5)"
+            )
+        self.device = device
+
+
+class HangingAttachSession(FakeSession):
+    def attach_open_port(self, device: str, serial_port: object) -> None:
+        self.attach_open_port_calls.append((device, serial_port))
+        while True:
+            time.sleep(0.1)
 
 
 class FakeCapture:
@@ -110,6 +138,14 @@ class FakeTextLogReader:
         self.closed = True
 
 
+class ProbeSerialPort:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def make_candidate(
     device: str,
     *,
@@ -118,6 +154,10 @@ def make_candidate(
     protocol_version: int = 1,
     serial_number: str | None = None,
     location: str | None = None,
+    hello_verified: bool = True,
+    protocol_verified: bool | None = None,
+    protocol_verified_via: str | None = None,
+    probe_serial_port: object | None = None,
 ) -> ReceiverPortCandidate:
     hello = HelloMessage(product=product, channel=channel, protocol_version=protocol_version)
     return ReceiverPortCandidate(
@@ -129,10 +169,13 @@ def make_candidate(
             location=location,
         ),
         vid_pid_match=True,
-        hello_verified=True,
-        hello_product=hello.product,
-        hello_channel=hello.channel,
-        hello_protocol_version=hello.protocol_version,
+        hello_verified=hello_verified,
+        hello_product=hello.product if hello_verified else None,
+        hello_channel=hello.channel if hello_verified else None,
+        hello_protocol_version=hello.protocol_version if hello_verified else None,
+        protocol_verified=hello_verified if protocol_verified is None else protocol_verified,
+        protocol_verified_via="hello" if hello_verified and protocol_verified_via is None else protocol_verified_via,
+        probe_serial_port=probe_serial_port,
     )
 
 
@@ -172,6 +215,24 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.state.discovery_state, "multiple_receivers")
         self.assertFalse(runtime.state.attached)
         self.assertEqual(sessions, [])
+
+    def test_default_runtime_discovery_keeps_verified_probe_port_open(self) -> None:
+        clock = FakeClock()
+        configs = []
+
+        def discover_ports(config, **_kwargs):
+            configs.append(config)
+            return []
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=discover_ports,
+            session_factory=FakeSession,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: len(configs) == 1)
+
+        self.assertTrue(configs[0].keep_probe_port_open_on_success)
 
     def test_mismatched_protocol_port_is_ignored(self) -> None:
         clock = FakeClock()
@@ -236,6 +297,141 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.state.discovery_state, "receiver_not_found")
         self.assertFalse(runtime.state.attached)
 
+    def test_protocol_verified_port_without_hello_is_attached(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [
+                make_candidate(
+                    "COM8",
+                    hello_verified=False,
+                    protocol_verified=True,
+                    protocol_verified_via="ack",
+                )
+            ],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+
+        self.assertTrue(runtime.state.attached)
+        self.assertEqual(runtime.state.receiver_port, "COM8")
+        self.assertEqual(sessions[0].open_calls, ["COM8"])
+
+    def test_protocol_verified_port_retries_after_permission_error(self) -> None:
+        clock = FakeClock()
+        sessions: list[FlakyOpenSession] = []
+
+        def session_factory() -> FlakyOpenSession:
+            session = FlakyOpenSession()
+            sessions.append(session)
+            return session
+
+        runtime, capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [make_candidate("COM8")],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached, timeout_s=0.8)
+
+        self.assertTrue(runtime.state.attached)
+        self.assertEqual(runtime.state.receiver_port, "COM8")
+        self.assertEqual(sessions[0].open_calls, ["COM8", "COM8"])
+        self.assertIn(
+            (
+                "receiver_attach_open_retry_scheduled",
+                "lifecycle",
+                {"device": "COM8", "attempt": 1, "delay_s": 0.25},
+                "Could not open receiver port COM8: could not open port 'COM8': "
+                "PermissionError(13, 'アクセスが拒否されました。', None, 5)",
+            ),
+            capture.app_events,
+        )
+
+    def test_protocol_verified_port_reuses_probe_serial_port_for_attach(self) -> None:
+        clock = FakeClock()
+        probe_serial_port = ProbeSerialPort()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [
+                make_candidate("COM8", probe_serial_port=probe_serial_port)
+            ],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+
+        self.assertTrue(runtime.state.attached)
+        self.assertEqual(sessions[0].open_calls, [])
+        self.assertEqual(sessions[0].attach_open_port_calls, [("COM8", probe_serial_port)])
+        self.assertFalse(probe_serial_port.closed)
+
+    def test_attach_timeout_marks_error_without_blocking_ui(self) -> None:
+        clock = FakeClock()
+        probe_serial_port = ProbeSerialPort()
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [
+                make_candidate("COM8", probe_serial_port=probe_serial_port)
+            ],
+            session_factory=HangingAttachSession,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime._attach_thread is not None)
+        clock.now += 3.1
+        runtime.tick()
+
+        self.assertEqual(runtime.state.discovery_state, "error")
+        self.assertEqual(runtime.state.last_error, "Receiver attach timed out")
+        self.assertTrue(probe_serial_port.closed)
+        self.assertIsNone(runtime._active_attach_token)
+        self.assertIsNone(runtime._active_attach_candidate)
+        self.assertIsNone(runtime._active_attach_session)
+
+    def test_protocol_verified_sibling_ports_do_not_require_multiple_attachments(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [
+                make_candidate("COM7", serial_number="receiver-1"),
+                make_candidate(
+                    "COM8",
+                    serial_number="receiver-1",
+                    hello_verified=False,
+                    protocol_verified=False,
+                ),
+            ],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+
+        self.assertEqual(runtime.state.receiver_port, "COM7")
+        self.assertEqual(len(sessions), 1)
+
     def test_refresh_requests_status_and_candidates(self) -> None:
         clock = FakeClock()
         sessions: list[FakeSession] = []
@@ -299,6 +495,35 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual(sessions[0].sent_messages, [])
 
+    def test_scan_timeout_without_ack_triggers_refresh_recovery(self) -> None:
+        clock = FakeClock()
+        sessions: list[FakeSession] = []
+
+        def session_factory() -> FakeSession:
+            session = FakeSession()
+            sessions.append(session)
+            return session
+
+        runtime, _capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [make_candidate("COM5")],
+            session_factory=session_factory,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+
+        runtime.scan_start()
+        self.assertEqual([message.name for message in sessions[0].sent_messages], ["scan_start"])
+
+        clock.now += 13.0
+        runtime.tick()
+
+        self.assertEqual(
+            [message.name for message in sessions[0].sent_messages],
+            ["scan_start", "get_status", "get_candidates"],
+        )
+        self.assertIn("receiver response", runtime.state.last_error or "")
+
     def test_reconnect_discovery_reuses_preferred_identity(self) -> None:
         clock = FakeClock()
         configs = []
@@ -346,6 +571,7 @@ class RuntimeTests(unittest.TestCase):
             session_factory=FakeSession,
             text_log_reader_factory=FakeTextLogReader,
             time_fn=clock,
+            auto_attach_receiver_debug=True,
         )
 
         self._wait_until(runtime, lambda: runtime.state.attached)
@@ -368,6 +594,7 @@ class RuntimeTests(unittest.TestCase):
             session_factory=FakeSession,
             text_log_reader_factory=FakeTextLogReader,
             time_fn=clock,
+            auto_attach_receiver_debug=True,
         )
 
         self._wait_until(runtime, lambda: runtime.state.attached)
@@ -377,6 +604,29 @@ class RuntimeTests(unittest.TestCase):
         skip_events = [event for event in capture.lifecycle_events if event[1] == "receiver_debug_attach_skipped"]
         self.assertEqual(len(skip_events), 1)
         self.assertIn("multiple receiver debug sibling ports", skip_events[0][3] or "")
+
+    def test_receiver_debug_auto_attach_is_disabled_by_default(self) -> None:
+        clock = FakeClock()
+        ports = [
+            SerialPortInfo(device="COM5", vid=0x2FE3, pid=0x0012, serial_number="abc123", location="usb-1"),
+            SerialPortInfo(device="COM6", vid=0x2FE3, pid=0x0012, serial_number="abc123", location="usb-1"),
+        ]
+        runtime, capture = self._build_runtime(
+            discover_ports=lambda *_args, **_kwargs: [make_candidate("COM5", serial_number="abc123", location="usb-1")],
+            list_ports=lambda: ports,
+            session_factory=FakeSession,
+            text_log_reader_factory=FakeTextLogReader,
+            time_fn=clock,
+        )
+
+        self._wait_until(runtime, lambda: runtime.state.attached)
+        runtime.tick()
+
+        self.assertIsNone(runtime.state.receiver_debug_port)
+        self.assertNotIn(("receiver", "receiver_debug_attach_started", None, None, None), capture.lifecycle_events)
+        skip_events = [event for event in capture.lifecycle_events if event[1] == "receiver_debug_attach_skipped"]
+        self.assertEqual(len(skip_events), 1)
+        self.assertIn("auto-attach is disabled", skip_events[0][3] or "")
 
     def test_manual_keyboard_log_attach_updates_state_and_records_lifecycle(self) -> None:
         clock = FakeClock()

@@ -96,7 +96,10 @@ class AppController:
             self._pending_command_order.remove(name)
         self._pending_command_order.append(name)
         self._sync_pending_command_name()
-        self.state.last_error = None
+        if name == "scan_start":
+            # Start the watchdog when the command is queued so a missing ack/event
+            # cannot leave the UI busy forever.
+            self.state.scan_watchdog_started_at = self._time_fn()
         request_id = self._next_request_id
         self._next_request_id += 1
         return CommandMessage(request_id=request_id, name=name, fields=dict(fields))
@@ -140,11 +143,15 @@ class AppController:
         if self._time_fn() - started_at < timeout_s:
             return False
         self.state.scan_watchdog_started_at = None
-        if self.state.receiver_state == "scanning" or self.state.scan_in_progress:
+        if (
+            self.state.receiver_state == "scanning"
+            or self.state.scan_in_progress
+            or "scan_start" in self.state.pending_command_names
+        ):
             self.state.receiver_state = "idle"
             self.state.scan_in_progress = False
             self._clear_pending_commands()
-            self.state.last_error = "Scan timed out while waiting for scan_complete; requesting resync."
+            self.state.last_error = "Scan timed out while waiting for receiver response; requesting resync."
             self._emit_state_changes(snapshot)
             return True
         return False

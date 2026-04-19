@@ -23,6 +23,7 @@
 ### Closed In Phase 1 / 1.5
 
 - `DesktopApp Phase 1` の attach / candidate list / connect / bond erase / receiver 再接続の主導線
+- `COM Port Detection Stability` の最新 Windows attach / reconnect 再検証
 - packaged app の build / launch / Windows 上の基本動作確認
 - `protocol v1` の desktop app 実装、candidate policy、testing policy、foundation document の正本化
 - local test による `protocol / controller / runtime / session / state` の stable contract 保護
@@ -100,15 +101,81 @@
 
 ### 5. COM Port Detection Stability
 
-- Status: `pass (user-reported Windows observation)`
+- Status: `pass (latest Windows attach/reconnect revalidation)`
 - Target:
   - `app 起動時` と `receiver 抜き差し後` の両方で `hello.channel=gui` port へ再接続できる
 - Evidence:
   - Windows packaged `EXE` 起動時に `COM8` へ attach し、GUI の summary に反映された
   - `receiver` 抜き差し後に GUI 用 `COM port` へ正しく再接続し、その後も挙動に異常が見られなかったとの user observation を確認
+  - `20260419_152258_78ec.jsonl` で `GUI 起動 -> dongle 接続 -> attached -> dongle 抜去 -> 再接続 -> attached -> dongle 抜去` の一連の再接続シナリオが成功した
 - Notes:
   - `single receiver` 条件での再接続は確認済み
   - `receiver not found`、`multiple receivers detected` の各状態がどう見えたかは引き続き補助観測対象とする
+  - 2026-04-11 の Windows 実機再検証では、一時 `receiver attached` へ戻らない問題を観測したが、原因は `attach 前 discovery` の sibling diagnostic と `hello.channel=gui` probe 成功後の `COM8` reopen による `PermissionError(13)` だったと切り分け済みである
+  - 上記に対して、通常 discovery では sibling diagnostic を既定無効化し、probe 成功済み port は close/reopen せずそのまま session へ引き継ぐよう修正した
+  - 続く `20260411_190957_0aa6.jsonl` では attach 復旧後に `status_snapshot` 分割受信由来の `protocol_parse_error` を観測したため、session reader を `newline` まで再組み立てしてから parse するよう追加修正した
+  - 最新の `20260411_191511_7db6.jsonl` では `COM8` の `hello.channel=gui` 検出後に `attached` へ遷移し、その後 `Protocol parse error` や予期せぬ `Receiver port disconnected` を出さず正常終了まで維持できたため、上記の問題は現時点では再現していない
+  - ただし 2026-04-11 夜から 2026-04-12 未明の再検証では、`attach` 安定化のための追加変更が逆に不安定要因になった
+  - `20260411_192328_ccf4.jsonl`: `COM8` への attach 自体は成功したが、`scan_start` 後に `ack / event` が 1 件も返らず watchdog timeout になった。候補一覧に何も出なかった直接原因は `candidate filter` ではなく、receiver session が command に応答していないことだった
+  - `20260411_193400_ac94.jsonl`: retained probe port へ `DTR` を再 assert する試行後、`hello` 検出から `attached` まで約 23 秒遅延したため、この案は revert した
+  - `20260411_194222_b1e8.jsonl`: probe 成功後に `COM8` を close/reopen する試行では `FileNotFoundError(2)` で attach 失敗となったため、この案も revert した
+  - `20260411_212920_9edc.jsonl` と `20260411_213319_c34c.jsonl`: retained probe port を `attach_open_port` で再利用する経路のまま再準備を加えると、`receiver_attach_open_started` で GUI がハングした
+  - 上記に対して、attach 自体は background worker 化し、`Receiver attach timed out` で UI が固まらないようにはした
+  - その後の `20260412_002257_014a.jsonl` では attach まで進む前に discovery probe が不安定化し、`COM7` を先に 1 秒 probe したあと `COM8` も `hello_verified=false` となり、以後は `COM7 / COM8` 両方が `elapsed_ms=0` で即失敗する `receiver_not_found` loop を観測した
+  - historical hypothesis:
+    `COM7` と `COM8` の sibling port のうち、GUI 側と思われる `COM8(location=1-1:x.2)` より先に `COM7` を probe すると、GUI port 側の受信機会または port readiness を乱している可能性がある
+  - mitigation:
+    discovery 時は `location` を持つ port を優先して probe するよう変更し、実機ログ上で実績のある `COM8` を `COM7` より先に見るよう調整した
+  - 2026-04-19 local mitigation:
+    `probe_gui_protocol` worker の open/read exception を `discovery_probe_finished.probe_failure_*` として明示ログ化した
+  - 2026-04-19 local mitigation:
+    GUI runtime の discovery では、`hello` / protocol verified になった probe port を close/reopen せず `attach_open_port` へ引き継ぐ方針へ戻した
+  - 2026-04-19 local mitigation:
+    retained probe port の session attach では `DTR` 再 assert と input/output buffer reset を行わず、既に開けている port の reader / writer thread 起動だけに寄せた
+  - observation target:
+    `probe_failure_exception_class / probe_failure_detail` は今後 `hello_verified=false` が再発した場合に `pyserial open failure` と `hello timeout` の切り分けに使う
+  - `20260419_150621_f3c0.jsonl`:
+    `COM8(location=1-1.2.3.1:x.2)` が最初に probe され、`hello.channel=gui` は `62 ms` で検出できた
+  - `20260419_150621_f3c0.jsonl`:
+    その後 `receiver_attach_open_started(mode=attach_open_port)` までは進んだが、`3 秒` の attach timeout に到達し `Receiver attach timed out` になった
+  - `20260419_150621_f3c0.jsonl`:
+    timeout 後も stale attach worker が `COM8` を掴み続け、後続 discovery は `COM8 / COM7` の `PermissionError(13)` を記録した
+  - `20260419_150621_f3c0.jsonl`:
+    stale worker は約 `14.5 秒` 後に `receiver_attach_open_finished(mode=attach_open_port)` を出したが、すでに active token は timeout 済みで attach state には復帰しなかった
+  - 2026-04-19 follow-up mitigation:
+    attach timeout 時に active candidate の retained probe port と active session を明示 close / release するよう修正した
+  - 2026-04-19 follow-up mitigation:
+    timeout 後に stale attach result が返った場合は attach thread slot を解放し、古い session を閉じるようにした
+  - follow-up observation:
+    以後の実機ログでは timeout 後の即時 `PermissionError(13)` loop は再現していない
+  - `20260419_151128_a3a9.jsonl`:
+    dongle 接続後、`COM8(location=1-1.2.3.1:x.2)` が最初に probe され、`hello.channel=gui` は `32 ms` で検出できた
+  - `20260419_151128_a3a9.jsonl`:
+    `receiver_attach_open_started(mode=attach_open_port)` の後、`receiver_attach_open_finished` は `30,000 ms` 後に出ており、retained probe port の session attach 中に長時間ブロックしている
+  - `20260419_151128_a3a9.jsonl`:
+    `Receiver attach timed out` は attach 開始から約 `45 秒` 後、かつ `receiver_attach_open_finished` から約 `15 秒` 後に出ているため、attach timeout cleanup だけでは原因箇所の特定に不足がある
+  - 2026-04-19 follow-up mitigation:
+    retained probe port の `attach_open_port` では `timeout / write_timeout` の再設定も含めて serial port 再準備を完全にスキップするよう変更した
+  - 2026-04-19 follow-up mitigation:
+    session attach の lifecycle tap を GUI app event に接続し、`session_attach_open_port_close_*`、`session_prepare_serial_finished`、`session_reader_thread_started`、`session_writer_thread_started` の段階別ログを追加した
+  - follow-up observation:
+    後続ログでは `session_*` lifecycle event が同一 tick 内で完了し、停止箇所は再現していない
+  - `20260419_151810_86eb.jsonl`:
+    dongle 接続後、`COM8(location=1-1.2.3.1:x.2)` が最初に probe され、`hello.channel=gui` は `78 ms` で検出できた
+  - `20260419_151810_86eb.jsonl`:
+    `session_attach_open_port_*`、`session_prepare_serial_finished`、`session_reader_thread_started`、`session_writer_thread_started` が同一 tick 内で完了し、`receiver_attach_open_finished(elapsed_ms=0)` の後 `attached` へ遷移した
+  - `20260419_151810_86eb.jsonl`:
+    その後の `Receiver port disconnected: ClearCommError failed ...` は user 操作による dongle 取り外し後に発生しており、attach 失敗ではなく切断検出として扱う
+  - latest observation:
+    retained probe port の `serial re-prepare` 完全スキップ後、前回の `30 秒` attach hang は再現せず、GUI attach は成功した
+  - `20260419_152258_78ec.jsonl`:
+    初回 attach は `COM8` probe `62 ms`、`receiver_attach_open_finished(elapsed_ms=0)`、`attached` 遷移まで成功した
+  - `20260419_152258_78ec.jsonl`:
+    dongle 抜去後は `disconnected` になり、その後 discovery が再開して `receiver_not_found` を複数回挟んだ
+  - `20260419_152258_78ec.jsonl`:
+    再接続後の attach は `COM8` probe `47 ms`、`receiver_attach_open_finished(elapsed_ms=0)`、`attached` 遷移まで成功した
+  - latest observation:
+    `app 起動時` と `receiver 抜き差し後` の両方で `hello.channel=gui` port へ再接続できることを最新 Windows 実機ログで確認した
 
 ### 6. HID Bridge Regression Safety
 

@@ -2,6 +2,7 @@
 #define ZMK_USB_BRIDGE_GUI_RUNTIME_STATE_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 #define ZMK_USB_BRIDGE_GUI_MAX_CANDIDATES 12
@@ -15,7 +16,7 @@ struct zmk_usb_bridge_gui_candidate {
     bool has_hid_service;
     bool has_keyboard_appearance;
     int rssi;
-    int last_seen_ms;
+    int64_t last_seen_ms;
 };
 
 struct zmk_usb_bridge_gui_string_list {
@@ -48,9 +49,15 @@ struct zmk_usb_bridge_gui_state {
 void zmk_usb_bridge_gui_state_init(void);
 const struct zmk_usb_bridge_gui_state *zmk_usb_bridge_gui_state_get(void);
 void zmk_usb_bridge_gui_state_prepare_scan(void);
-bool zmk_usb_bridge_gui_state_publish_scan_candidate(void);
-bool zmk_usb_bridge_gui_state_scan_has_pending_candidates(void);
 void zmk_usb_bridge_gui_state_complete_scan(void);
+const struct zmk_usb_bridge_gui_candidate *zmk_usb_bridge_gui_state_observe_scan_candidate(
+    const char *ble_address,
+    const char *display_name,
+    bool connectable,
+    bool has_hid_service,
+    bool has_keyboard_appearance,
+    int rssi,
+    int64_t last_seen_ms);
 bool zmk_usb_bridge_gui_state_select_candidate(int candidate_id);
 void zmk_usb_bridge_gui_state_connect_candidate(void);
 void zmk_usb_bridge_gui_state_set_connected(void);

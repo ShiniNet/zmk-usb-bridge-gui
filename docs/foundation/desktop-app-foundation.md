@@ -30,9 +30,12 @@
 - PoC で使う receiver の `VID/PID` は `0x2FE3:0x0012` とする
 - desktop app 側の `VID/PID` prefilter は receiver firmware の `prj.conf` と同じ値を参照する
 - 次に各候補 port を短時間 open し、`protocol v1` の `hello` を待つ
-- `hello` probe の待ち時間は `PoC Phase 1` では `0.4 秒` を既定値とし、応答が無ければその probe では非 GUI port とみなしてよい
-- receiver 側が port open 直後に `hello` を送る前提を置き、`0.4 秒` で不足する観測が出た場合だけ firmware / app のどちらを調整するかを再評価する
+- `hello` probe の待ち時間は current 実機観測を踏まえ、`PoC Phase 1` では `1.0 秒` を既定値とする
+- `DTR` 立ち上がり直後の boot snapshot を待つ短い受信優先フェーズを設け、それでも応答が無ければ `get_status` probe を送ってよい
+- sibling CDC port の close が OS 側で長時間 block する観測があるため、desktop app は `probe timeout` を discovery 全体の上限として扱い、1 port の異常で探索全体が数十秒止まらないことを優先する
 - `hello.channel=gui` を返した port だけを GUI 制御用 port として採用する
+- `hello` / protocol 応答で GUI port と確認できた場合は、可能な限りその probe port を閉じずに session attach へ引き継ぐ
+- 保持済み probe port を session attach へ引き継ぐ場合は、`DTR`、buffer reset、`timeout / write_timeout` などの serial re-prepare を行わず、reader / writer thread 起動へ進む
 
 ### GUI CDC と Log CDC の識別
 
@@ -59,6 +62,7 @@
 - 接続済み receiver が抜かれた場合は切断扱いにして自動探索へ戻る
 - 同じ receiver が再列挙されたら、再度 `hello.channel=gui` を確認して再接続する
 - 可能なら `USB serial number` または安定した device path を記憶し、再接続時の優先候補にしてよい
+- Windows 実機 validation では、保持済み probe port をそのまま `attach_open_port` へ渡す経路で `app 起動 -> dongle 接続 -> attached -> dongle 抜去 -> 再接続 -> attached` まで確認済みである
 
 ## USB Assumption For PoC
 
@@ -77,6 +81,7 @@
 - desktop app は必要に応じて `GUI app event`、`receiver GUI protocol`、`receiver debug serial`、`keyboard debug serial` を同時収集してよい
 - ただし `GUI protocol port` を log capture のために別 open してはならない
 - `receiver debug port` と `keyboard debug port` は GUI 制御 port とは別 reader として扱う
+- Windows 実機で `receiver debug` sibling port の open が GUI session を不安定化させる間は、receiver debug の自動 attach を既定で無効としてよい
 - log record の schema、保存形式、session 単位の運用は [`debug-log-foundation.md`](debug-log-foundation.md) を正本とする
 
 ## Current Phase 1 Desktop App Contract
@@ -93,6 +98,8 @@
 - discovery と attach の基本方針は上記 `COM Port Detection Policy` を正本とする
 - `Phase 1` の GUI 実装は、`multiple receivers detected` を手動選択 UI ではなく `1 台に絞って再接続` を促す状態として扱う
 - attach 後は `serial_number` と安定した device path を優先候補として保持し、再接続時の discovery に引き継いでよい
+- attach が timeout した場合は active probe port / session を close し、stale worker が後から成功しても active session として採用しない
+- session attach の lifecycle event は debug capture に残し、実機での port open / thread start 停止箇所を後から追えるようにする
 
 ### Runtime And Recovery Contract
 

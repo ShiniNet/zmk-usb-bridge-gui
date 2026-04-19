@@ -73,7 +73,7 @@ def sort_public_candidates(candidates: list[CandidateView]) -> list[CandidateVie
             -(candidate.rssi if candidate.rssi is not None else -9999),
             -(candidate.last_seen_ms if candidate.last_seen_ms is not None else -1),
             0 if candidate.display_name is not None else 1,
-            candidate.ble_address.lower(),
+            candidate.candidate_id,
         )
     )
     return public_candidates[:MAX_PUBLIC_CANDIDATES]
@@ -124,11 +124,11 @@ class AppState:
 
     @property
     def can_scan(self) -> bool:
-        return self.attached and not self.busy
+        return self.attached and not self.busy and self.receiver_state != "connected"
 
     @property
     def can_refresh(self) -> bool:
-        return self.can_scan
+        return self.attached and not self.busy
 
     @property
     def can_connect_selected(self) -> bool:
@@ -141,7 +141,7 @@ class AppState:
 
     @property
     def can_bond_erase(self) -> bool:
-        return self.can_scan
+        return self.attached and not self.busy
 
     @property
     def can_retry(self) -> bool:

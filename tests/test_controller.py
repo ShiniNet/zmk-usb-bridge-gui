@@ -222,6 +222,21 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(controller.state.receiver_state, "idle")
         self.assertIsNotNone(controller.state.last_error)
 
+    def test_scan_watchdog_timeout_recovers_when_ack_never_arrives(self) -> None:
+        controller, clock = build_controller()
+        controller.build_command("scan_start")
+        self.assertIn("scan_start", controller.state.pending_command_names)
+        self.assertIsNotNone(controller.state.scan_watchdog_started_at)
+
+        clock.now += 13.0
+        expired = controller.expire_scan_watchdog(12.0)
+
+        self.assertTrue(expired)
+        self.assertEqual(controller.state.receiver_state, "idle")
+        self.assertFalse(controller.state.scan_in_progress)
+        self.assertNotIn("scan_start", controller.state.pending_command_names)
+        self.assertIn("receiver response", controller.state.last_error or "")
+
     def test_error_message_surfaces_stale_generation(self) -> None:
         controller, _ = build_controller()
         controller.apply_message(

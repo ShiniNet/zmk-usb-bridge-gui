@@ -20,11 +20,18 @@
 - `接続状態 / keyboard 名 / battery / modifier / 直近キー / mouse button` を GUI 表示する
 - `候補一覧取得 / 選択デバイスへの pairing / bond erase` を GUI 操作から行えるようにする
 
+## 現在の進捗
+
+- desktop app の USB dongle attach / reconnect は、最新 Windows 実機ログで安定化を確認済みです。
+- `GUI 起動 -> dongle 接続 -> attached -> dongle 抜去 -> 再接続 -> attached` まで通過しています。
+- 次の主タスクは receiver firmware 側の `connect_candidate / pairing / bond_erase` を stub から実 BLE lifecycle へ置き換えることです。
+- 進行中の詳細計画は [docs/plans/phase2-and-beyond-implementation-plan.md](docs/plans/phase2-and-beyond-implementation-plan.md) を参照します。
+
 ## ドキュメント
 
 - 設計文書の入口: [docs/README.md](docs/README.md)
 - 基本構想: [docs/foundation/project-concept.md](docs/foundation/project-concept.md)
-- Phase2以降の実装計画: [docs/foundation/phase2-and-beyond-implementation-plan.md](docs/foundation/phase2-and-beyond-implementation-plan.md)
+- Phase2以降の実装計画: [docs/plans/phase2-and-beyond-implementation-plan.md](docs/plans/phase2-and-beyond-implementation-plan.md)
 - テスト方針: [docs/foundation/testing-policy.md](docs/foundation/testing-policy.md)
 
 ## Desktop App Skeleton
