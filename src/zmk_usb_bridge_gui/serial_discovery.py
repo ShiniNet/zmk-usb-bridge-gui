@@ -51,6 +51,7 @@ class ReceiverPortCandidate:
     hello_protocol_version: int | None = None
     protocol_verified: bool = False
     protocol_verified_via: str | None = None
+    probe_serial_port: object | None = None
 
 
 @dataclass(slots=True)
@@ -61,6 +62,7 @@ class DiscoveryConfig:
     retry_interval_s: float = 2.0
     preferred_serial_number: str | None = None
     preferred_device_path: str | None = None
+    enable_gui_ready_diagnostic: bool = False
 
 
 @dataclass(slots=True)
@@ -68,6 +70,7 @@ class GuiProtocolProbeResult:
     hello: HelloMessage | None = None
     protocol_verified: bool = False
     verified_via: str | None = None
+    retained_serial_port: object | None = None
 
 
 @dataclass(slots=True)
@@ -86,12 +89,14 @@ def _update_probe_result_from_message(
             hello=message,
             protocol_verified=True,
             verified_via="hello",
+            retained_serial_port=result.retained_serial_port,
         )
     if isinstance(message, StatusSnapshot):
         if not result.protocol_verified:
             return GuiProtocolProbeResult(
                 protocol_verified=True,
                 verified_via="status_snapshot",
+                retained_serial_port=result.retained_serial_port,
             )
         return result
     if isinstance(message, CandidateSnapshot):
@@ -99,15 +104,24 @@ def _update_probe_result_from_message(
             return GuiProtocolProbeResult(
                 protocol_verified=True,
                 verified_via="candidate_snapshot",
+                retained_serial_port=result.retained_serial_port,
             )
         return result
     if isinstance(message, AckMessage) and message.request_id == 0 and message.name == "get_status":
         if not result.protocol_verified:
-            return GuiProtocolProbeResult(protocol_verified=True, verified_via="ack")
+            return GuiProtocolProbeResult(
+                protocol_verified=True,
+                verified_via="ack",
+                retained_serial_port=result.retained_serial_port,
+            )
         return result
     if isinstance(message, ErrorMessage) and message.request_id == 0 and message.name == "get_status":
         if not result.protocol_verified:
-            return GuiProtocolProbeResult(protocol_verified=True, verified_via="error")
+            return GuiProtocolProbeResult(
+                protocol_verified=True,
+                verified_via="error",
+                retained_serial_port=result.retained_serial_port,
+            )
         return result
     return result
 
@@ -186,6 +200,7 @@ def _probe_gui_protocol_worker(
     baudrate: int,
     timeout_s: float,
     serial_factory: Callable[..., object],
+    keep_port_open_on_success: bool,
 ) -> None:
     per_read_timeout_s = min(timeout_s, 0.1)
     serial_port = None
@@ -197,6 +212,9 @@ def _probe_gui_protocol_worker(
             write_timeout=per_read_timeout_s,
         )
         result = _probe_gui_protocol_on_open_port(serial_port, timeout_s=timeout_s)
+        if keep_port_open_on_success and result.protocol_verified:
+            result.retained_serial_port = serial_port
+            serial_port = None
     except Exception:
         result = GuiProtocolProbeResult()
     result_queue.put(result)
@@ -427,7 +445,7 @@ def _port_preference_rank(
     *,
     preferred_serial_number: str | None,
     preferred_device_path: str | None,
-) -> tuple[int, int, str]:
+) -> tuple[int, int, int, str]:
     serial_match = preferred_serial_number is not None and port.serial_number == preferred_serial_number
     path_match = preferred_device_path is not None and (
         port.location == preferred_device_path or port.device == preferred_device_path
@@ -435,6 +453,7 @@ def _port_preference_rank(
     return (
         0 if serial_match else 1,
         0 if path_match else 1,
+        0 if port.location is not None else 1,
         port.device.lower(),
     )
 
@@ -453,6 +472,7 @@ def probe_gui_protocol(
     baudrate: int = DEFAULT_BAUDRATE,
     timeout_s: float = DEFAULT_PROBE_TIMEOUT_S,
     serial_factory: Callable[..., object] | None = None,
+    keep_port_open_on_success: bool = False,
 ) -> GuiProtocolProbeResult:
     """Attempt to verify that a port speaks the GUI protocol."""
 
@@ -466,6 +486,7 @@ def probe_gui_protocol(
             "baudrate": baudrate,
             "timeout_s": timeout_s,
             "serial_factory": Serial,
+            "keep_port_open_on_success": keep_port_open_on_success,
         },
         name=f"probe-{device}",
         daemon=True,
@@ -508,7 +529,13 @@ def discover_receiver_ports(
     config = config or DiscoveryConfig()
     candidates: list[ReceiverPortCandidate] = []
     verified_identity_keys: set[tuple[str, str]] = set()
-    probe_protocol = probe_protocol_fn or probe_gui_protocol
+    probe_protocol = probe_protocol_fn or (
+        lambda device, **kwargs: probe_gui_protocol(
+            device,
+            keep_port_open_on_success=False,
+            **kwargs,
+        )
+    )
     ports = sorted(
         list_serial_ports(),
         key=lambda port: _port_preference_rank(
@@ -585,10 +612,11 @@ def discover_receiver_ports(
             if probe_result.protocol_verified:
                 candidate.protocol_verified = True
                 candidate.protocol_verified_via = probe_result.verified_via
+                candidate.probe_serial_port = probe_result.retained_serial_port
                 if identity_key is not None:
                     verified_identity_keys.add(identity_key)
         candidates.append(candidate)
-    if probe_hello:
+    if probe_hello and config.enable_gui_ready_diagnostic:
         _apply_gui_ready_diagnostic(
             candidates,
             config=config,

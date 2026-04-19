@@ -194,6 +194,21 @@ class SerialDiscoveryTests(unittest.TestCase):
         self.assertIsNotNone(result.hello)
         self.assertEqual(FakeSerial.writes, [])
 
+    def test_probe_gui_protocol_can_keep_verified_port_open(self) -> None:
+        FakeSerial.on_dtr_lines = [
+            b'{"type":"hello","product":"zmk-usb-bridge-gui","protocol_version":1,"channel":"gui"}\n',
+        ]
+
+        result = probe_gui_protocol(
+            "COM8",
+            timeout_s=0.05,
+            serial_factory=FakeSerial,
+            keep_port_open_on_success=True,
+        )
+
+        self.assertTrue(result.protocol_verified)
+        self.assertIsNotNone(result.retained_serial_port)
+
     def test_probe_gui_protocol_returns_promptly_when_close_blocks(self) -> None:
         CloseBlockingSerial.on_dtr_lines = [
             b'{"type":"hello","product":"zmk-usb-bridge-gui","protocol_version":1,"channel":"gui"}\n',
@@ -261,7 +276,10 @@ class SerialDiscoveryTests(unittest.TestCase):
         discover_receiver_ports.__globals__["list_serial_ports"] = fake_list_serial_ports
         try:
             candidates = discover_receiver_ports(
-                DiscoveryConfig(vid_pid_allowlist=((0x2FE3, 0x0012),)),
+                DiscoveryConfig(
+                    vid_pid_allowlist=((0x2FE3, 0x0012),),
+                    enable_gui_ready_diagnostic=True,
+                ),
                 probe_hello=True,
                 probe_protocol_fn=fake_probe,
                 diagnostic_serial_factory=DiagnosticSerial,
@@ -272,6 +290,74 @@ class SerialDiscoveryTests(unittest.TestCase):
         self.assertEqual(candidates[0].port.device, "COM7")
         self.assertTrue(candidates[0].protocol_verified)
         self.assertEqual(candidates[0].protocol_verified_via, "gui_ready_diagnostic")
+
+    def test_discovery_does_not_run_gui_ready_diagnostic_by_default(self) -> None:
+        ports = [
+            SerialPortInfo(device="COM7", vid=0x2FE3, pid=0x0012, serial_number="receiver-1"),
+            SerialPortInfo(device="COM8", vid=0x2FE3, pid=0x0012, serial_number="receiver-1"),
+        ]
+        DiagnosticSerial.gui_to_log_ready = {"COM7": "COM8"}
+
+        def fake_list_serial_ports() -> list[SerialPortInfo]:
+            return ports
+
+        def fake_probe(_device: str, **_kwargs) -> GuiProtocolProbeResult:
+            return GuiProtocolProbeResult()
+
+        original_list_serial_ports = discover_receiver_ports.__globals__["list_serial_ports"]
+        discover_receiver_ports.__globals__["list_serial_ports"] = fake_list_serial_ports
+        try:
+            candidates = discover_receiver_ports(
+                DiscoveryConfig(vid_pid_allowlist=((0x2FE3, 0x0012),)),
+                probe_hello=True,
+                probe_protocol_fn=fake_probe,
+                diagnostic_serial_factory=DiagnosticSerial,
+            )
+        finally:
+            discover_receiver_ports.__globals__["list_serial_ports"] = original_list_serial_ports
+
+        self.assertEqual([candidate.port.device for candidate in candidates], ["COM7", "COM8"])
+        self.assertFalse(any(candidate.protocol_verified for candidate in candidates))
+
+    def test_discovery_prefers_location_backed_port_before_sibling_without_location(self) -> None:
+        ports = [
+            SerialPortInfo(device="COM7", vid=0x2FE3, pid=0x0012, serial_number="receiver-1"),
+            SerialPortInfo(
+                device="COM8",
+                vid=0x2FE3,
+                pid=0x0012,
+                serial_number="receiver-1",
+                location="1-1:x.2",
+            ),
+        ]
+        probe_calls: list[str] = []
+
+        def fake_list_serial_ports() -> list[SerialPortInfo]:
+            return ports
+
+        def fake_probe(device: str, **_kwargs) -> GuiProtocolProbeResult:
+            probe_calls.append(device)
+            if device == "COM8":
+                return GuiProtocolProbeResult(
+                    hello=HelloMessage(),
+                    protocol_verified=True,
+                    verified_via="hello",
+                )
+            self.fail("location-backed GUI candidate should be probed before its sibling")
+
+        original_list_serial_ports = discover_receiver_ports.__globals__["list_serial_ports"]
+        discover_receiver_ports.__globals__["list_serial_ports"] = fake_list_serial_ports
+        try:
+            candidates = discover_receiver_ports(
+                DiscoveryConfig(vid_pid_allowlist=((0x2FE3, 0x0012),)),
+                probe_hello=True,
+                probe_protocol_fn=fake_probe,
+            )
+        finally:
+            discover_receiver_ports.__globals__["list_serial_ports"] = original_list_serial_ports
+
+        self.assertEqual(probe_calls, ["COM8"])
+        self.assertEqual([candidate.port.device for candidate in candidates], ["COM8", "COM7"])
 
     def test_gui_ready_diagnostic_returns_timeout_result_promptly(self) -> None:
         HangingDiagnosticSerial.release_read.clear()

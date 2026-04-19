@@ -78,17 +78,15 @@ class SerialSession:
             )
         except Exception as exc:  # pragma: no cover - depends on OS serial stack.
             raise SessionOpenError(f"Could not open receiver port {device}: {exc}") from exc
-        if hasattr(serial_port, "reset_input_buffer"):
-            try:
-                serial_port.reset_input_buffer()
-            except Exception:
-                pass
-        if hasattr(serial_port, "dtr"):
-            try:
-                # Firmware gates the GUI channel on DTR, so assert it before the reader starts.
-                serial_port.dtr = True
-            except Exception:
-                pass
+        self._activate_serial_port(device, serial_port, prepare_port=True)
+
+    def attach_open_port(self, device: str, serial_port: object) -> None:
+        self.close()
+        self._write_queue = SimpleQueue()
+        self._activate_serial_port(device, serial_port, prepare_port=False)
+
+    def _activate_serial_port(self, device: str, serial_port: object, *, prepare_port: bool) -> None:
+        self._prepare_serial_port(serial_port, prepare_port=prepare_port)
         self.device = device
         self._serial = serial_port
         self._stop_event.clear()
@@ -96,6 +94,34 @@ class SerialSession:
         self._writer_thread = Thread(target=self._writer_loop, name="receiver-session-writer", daemon=True)
         self._reader_thread.start()
         self._writer_thread.start()
+
+    def _prepare_serial_port(self, serial_port: object, *, prepare_port: bool) -> None:
+        for attribute_name in ("timeout", "write_timeout"):
+            if not hasattr(serial_port, attribute_name):
+                continue
+            try:
+                setattr(serial_port, attribute_name, self._timeout_s)
+            except Exception:
+                pass
+
+        if hasattr(serial_port, "reset_input_buffer"):
+            try:
+                serial_port.reset_input_buffer()
+            except Exception:
+                pass
+
+        if prepare_port and hasattr(serial_port, "reset_output_buffer"):
+            try:
+                serial_port.reset_output_buffer()
+            except Exception:
+                pass
+
+        if prepare_port and hasattr(serial_port, "dtr"):
+            try:
+                # Firmware gates the GUI channel on DTR, so assert it before the reader starts.
+                serial_port.dtr = True
+            except Exception:
+                pass
 
     def close(self) -> None:
         self._stop_event.set()
@@ -144,22 +170,29 @@ class SerialSession:
         if serial_port is None:
             return
         disconnected_emitted = False
+        pending_text = ""
         try:
             while not self._stop_event.is_set():
                 raw_line = serial_port.readline()
                 if not raw_line:
                     continue
-                decoded = raw_line.decode("utf-8", errors="replace")
-                try:
-                    message = parse_message_line(decoded)
-                except ProtocolParseError as exc:
+                pending_text += raw_line.decode("utf-8", errors="replace")
+                while True:
+                    newline_index = pending_text.find("\n")
+                    if newline_index < 0:
+                        break
+                    decoded = pending_text[: newline_index + 1]
+                    pending_text = pending_text[newline_index + 1 :]
+                    try:
+                        message = parse_message_line(decoded)
+                    except ProtocolParseError as exc:
+                        if self._protocol_tap is not None:
+                            self._protocol_tap("rx", decoded, None, str(exc))
+                        self._events.put(SessionProtocolErrorEvent(str(exc), raw=decoded))
+                        continue
                     if self._protocol_tap is not None:
-                        self._protocol_tap("rx", decoded, None, str(exc))
-                    self._events.put(SessionProtocolErrorEvent(str(exc), raw=decoded))
-                    continue
-                if self._protocol_tap is not None:
-                    self._protocol_tap("rx", decoded, message, None)
-                self._events.put(SessionMessageEvent(message))
+                        self._protocol_tap("rx", decoded, message, None)
+                    self._events.put(SessionMessageEvent(message))
         except Exception as exc:  # pragma: no cover - depends on OS serial stack.
             if not self._stop_event.is_set():
                 self._stop_event.set()

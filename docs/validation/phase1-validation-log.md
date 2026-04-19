@@ -100,7 +100,7 @@
 
 ### 5. COM Port Detection Stability
 
-- Status: `pass (user-reported Windows observation)`
+- Status: `mixed (historical pass; latest Windows revalidation unstable)`
 - Target:
   - `app 起動時` と `receiver 抜き差し後` の両方で `hello.channel=gui` port へ再接続できる
 - Evidence:
@@ -109,6 +109,23 @@
 - Notes:
   - `single receiver` 条件での再接続は確認済み
   - `receiver not found`、`multiple receivers detected` の各状態がどう見えたかは引き続き補助観測対象とする
+  - 2026-04-11 の Windows 実機再検証では、一時 `receiver attached` へ戻らない問題を観測したが、原因は `attach 前 discovery` の sibling diagnostic と `hello.channel=gui` probe 成功後の `COM8` reopen による `PermissionError(13)` だったと切り分け済みである
+  - 上記に対して、通常 discovery では sibling diagnostic を既定無効化し、probe 成功済み port は close/reopen せずそのまま session へ引き継ぐよう修正した
+  - 続く `20260411_190957_0aa6.jsonl` では attach 復旧後に `status_snapshot` 分割受信由来の `protocol_parse_error` を観測したため、session reader を `newline` まで再組み立てしてから parse するよう追加修正した
+  - 最新の `20260411_191511_7db6.jsonl` では `COM8` の `hello.channel=gui` 検出後に `attached` へ遷移し、その後 `Protocol parse error` や予期せぬ `Receiver port disconnected` を出さず正常終了まで維持できたため、上記の問題は現時点では再現していない
+  - ただし 2026-04-11 夜から 2026-04-12 未明の再検証では、`attach` 安定化のための追加変更が逆に不安定要因になった
+  - `20260411_192328_ccf4.jsonl`: `COM8` への attach 自体は成功したが、`scan_start` 後に `ack / event` が 1 件も返らず watchdog timeout になった。候補一覧に何も出なかった直接原因は `candidate filter` ではなく、receiver session が command に応答していないことだった
+  - `20260411_193400_ac94.jsonl`: retained probe port へ `DTR` を再 assert する試行後、`hello` 検出から `attached` まで約 23 秒遅延したため、この案は revert した
+  - `20260411_194222_b1e8.jsonl`: probe 成功後に `COM8` を close/reopen する試行では `FileNotFoundError(2)` で attach 失敗となったため、この案も revert した
+  - `20260411_212920_9edc.jsonl` と `20260411_213319_c34c.jsonl`: retained probe port を `attach_open_port` で再利用する経路のまま再準備を加えると、`receiver_attach_open_started` で GUI がハングした
+  - 上記に対して、attach 自体は background worker 化し、`Receiver attach timed out` で UI が固まらないようにはした
+  - その後の `20260412_002257_014a.jsonl` では attach まで進む前に discovery probe が不安定化し、`COM7` を先に 1 秒 probe したあと `COM8` も `hello_verified=false` となり、以後は `COM7 / COM8` 両方が `elapsed_ms=0` で即失敗する `receiver_not_found` loop を観測した
+  - current hypothesis:
+    `COM7` と `COM8` の sibling port のうち、GUI 側と思われる `COM8(location=1-1:x.2)` より先に `COM7` を probe すると、GUI port 側の受信機会または port readiness を乱している可能性がある
+  - latest mitigation:
+    discovery 時は `location` を持つ port を優先して probe するよう変更し、実機ログ上で実績のある `COM8` を `COM7` より先に見るよう調整した
+  - next session memo:
+    まず最新 build で `COM8` が最初に probe されるかを確認し、それでも `hello_verified=false` が続く場合は `probe_gui_protocol` worker の open/read exception を空結果へ潰さず明示ログ化して、`pyserial open failure` と `hello timeout` を切り分ける
 
 ### 6. HID Bridge Regression Safety
 

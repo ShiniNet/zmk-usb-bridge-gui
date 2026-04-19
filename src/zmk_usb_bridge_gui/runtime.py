@@ -35,6 +35,19 @@ from .session import (
 )
 
 DEFAULT_RECEIVER_VID_PID_ALLOWLIST = ((0x2FE3, 0x0012),)
+OPEN_RETRYABLE_ERROR_MARKERS = (
+    "permissionerror",
+    "access is denied",
+    "access denied",
+    "resource busy",
+    "device or resource busy",
+    "filenotfounderror",
+    "file not found",
+    "指定されたファイルが見つかりません",
+)
+ATTACH_OPEN_RETRY_DELAY_S = 0.25
+ATTACH_OPEN_RETRY_ATTEMPTS = 3
+ATTACH_OPERATION_TIMEOUT_S = 3.0
 
 
 class AppRuntime:
@@ -71,6 +84,11 @@ class AppRuntime:
         self._next_discovery_at = 0.0
         self._discovery_results: SimpleQueue[tuple[str, object]] = SimpleQueue()
         self._discovery_thread: Thread | None = None
+        self._attach_results: SimpleQueue[tuple[str, int, object]] = SimpleQueue()
+        self._attach_thread: Thread | None = None
+        self._attach_attempt_token = 0
+        self._active_attach_token: int | None = None
+        self._attach_started_at = 0.0
         self._reader_failures: SimpleQueue[tuple[str, str, str | None, SerialPortInfo]] = SimpleQueue()
         self._receiver_debug_reader: SerialTextLogReader | None = None
         self._receiver_debug_epoch_key: tuple[str | None, str | None, str | None] | None = None
@@ -86,9 +104,11 @@ class AppRuntime:
 
     def tick(self) -> None:
         self._drain_discovery_results()
+        self._drain_attach_results()
         self._drain_session_events()
         self._drain_reader_failures()
         self._drain_capture_errors()
+        self._expire_attach_timeout()
 
         if self.controller.expire_scan_watchdog(self._scan_watchdog_timeout_s):
             self.refresh(clear_last_error=False)
@@ -98,6 +118,8 @@ class AppRuntime:
         if self.state.attached:
             return
         if self._discovery_thread is not None:
+            return
+        if self._attach_thread is not None:
             return
         if self._time_fn() >= self._next_discovery_at:
             self._start_discovery()
@@ -352,15 +374,34 @@ class AppRuntime:
     ) -> None:
         gui_candidates = [candidate for candidate in candidates if self._is_supported_gui_candidate(candidate)]
         if not gui_candidates:
+            self._release_discovery_probe_ports(candidates)
             self.controller.mark_receiver_not_found()
             self._schedule_next_discovery()
             return
         if len(gui_candidates) > 1:
+            self._release_discovery_probe_ports(candidates)
             self.controller.mark_multiple_receivers([candidate.port.device for candidate in gui_candidates])
             self._schedule_next_discovery()
             return
 
         candidate = gui_candidates[0]
+        self._release_discovery_probe_ports(candidates, keep_candidate=candidate)
+        self._start_attach(candidate, baudrate=baudrate)
+
+    def _start_attach(self, candidate: ReceiverPortCandidate, *, baudrate: int) -> None:
+        self._attach_attempt_token += 1
+        token = self._attach_attempt_token
+        self._active_attach_token = token
+        self._attach_started_at = self._time_fn()
+        self._attach_thread = Thread(
+            target=self._attach_worker,
+            args=(token, candidate, baudrate),
+            name="receiver-attach",
+            daemon=True,
+        )
+        self._attach_thread.start()
+
+    def _attach_worker(self, token: int, candidate: ReceiverPortCandidate, baudrate: int) -> None:
         session = self._session_factory()
         if hasattr(session, "set_protocol_tap"):
             session.set_protocol_tap(
@@ -372,16 +413,170 @@ class AppRuntime:
                 )
             )
         try:
-            session.open(candidate.port.device, baudrate=baudrate)
+            self._open_discovered_session(
+                session,
+                candidate=candidate,
+                baudrate=baudrate,
+            )
         except SessionOpenError as exc:
-            self.controller.mark_discovery_error(str(exc))
-            self._schedule_next_discovery()
+            self._attach_results.put(("error", token, (candidate, str(exc))))
             return
-        if getattr(session, "device", None) is None:
-            session.device = candidate.port.device
-        self._session = session
-        self.controller.mark_attached(candidate)
-        self._receiver_debug_epoch_key = None
+        self._attach_results.put(("attached", token, (candidate, session)))
+
+    def _drain_attach_results(self) -> None:
+        while True:
+            try:
+                result_type, token, payload = self._attach_results.get_nowait()
+            except Empty:
+                return
+
+            if token != self._active_attach_token:
+                if result_type == "attached":
+                    candidate, session = payload
+                    self._release_discovery_probe_ports([candidate])
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+                elif result_type == "error":
+                    candidate, _detail = payload
+                    self._release_discovery_probe_ports([candidate])
+                continue
+
+            self._attach_thread = None
+            self._active_attach_token = None
+            self._attach_started_at = 0.0
+
+            if result_type == "error":
+                candidate, detail = payload
+                self._release_discovery_probe_ports([candidate])
+                self.controller.mark_discovery_error(detail)
+                self._schedule_next_discovery()
+                continue
+
+            candidate, session = payload
+            self._release_discovery_probe_ports([candidate], keep_candidate=candidate)
+            if getattr(session, "device", None) is None:
+                session.device = candidate.port.device
+            self._session = session
+            self.controller.mark_attached(candidate)
+            self._receiver_debug_epoch_key = None
+
+    def _expire_attach_timeout(self) -> None:
+        active_token = self._active_attach_token
+        if active_token is None:
+            return
+        if self._time_fn() - self._attach_started_at < ATTACH_OPERATION_TIMEOUT_S:
+            return
+
+        self._attach_thread = None
+        self._active_attach_token = None
+        self._attach_started_at = 0.0
+        self.controller.mark_discovery_error("Receiver attach timed out")
+        self._schedule_next_discovery()
+
+    def _open_discovered_session(
+        self,
+        session: SerialSession,
+        *,
+        candidate: ReceiverPortCandidate,
+        baudrate: int,
+    ) -> None:
+        last_error: SessionOpenError | None = None
+
+        for attempt in range(1, ATTACH_OPEN_RETRY_ATTEMPTS + 1):
+            retained_probe_port = candidate.probe_serial_port
+            open_mode = "attach_open_port" if retained_probe_port is not None else "open"
+            started_at = time.monotonic()
+            self._emit_app_event(
+                "receiver_attach_open_started",
+                "lifecycle",
+                {
+                    "device": candidate.port.device,
+                    "attempt": attempt,
+                    "mode": open_mode,
+                },
+                None,
+            )
+            try:
+                if retained_probe_port is not None and hasattr(session, "attach_open_port"):
+                    session.attach_open_port(candidate.port.device, retained_probe_port)
+                    candidate.probe_serial_port = None
+                else:
+                    session.open(candidate.port.device, baudrate=baudrate)
+                self._emit_app_event(
+                    "receiver_attach_open_finished",
+                    "lifecycle",
+                    {
+                        "device": candidate.port.device,
+                        "attempt": attempt,
+                        "mode": open_mode,
+                        "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+                    },
+                    None,
+                )
+                return
+            except SessionOpenError as exc:
+                last_error = exc
+                self._emit_app_event(
+                    "receiver_attach_open_failed",
+                    "lifecycle",
+                    {
+                        "device": candidate.port.device,
+                        "attempt": attempt,
+                        "mode": open_mode,
+                        "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+                    },
+                    str(exc),
+                )
+                if not self._should_retry_discovered_session_open(candidate, exc, attempt):
+                    raise
+                self._emit_app_event(
+                    "receiver_attach_open_retry_scheduled",
+                    "lifecycle",
+                    {
+                        "device": candidate.port.device,
+                        "attempt": attempt,
+                        "delay_s": ATTACH_OPEN_RETRY_DELAY_S,
+                    },
+                    str(exc),
+                )
+                time.sleep(ATTACH_OPEN_RETRY_DELAY_S)
+
+        if last_error is not None:
+            raise last_error
+
+    @staticmethod
+    def _release_discovery_probe_ports(
+        candidates: list[ReceiverPortCandidate],
+        *,
+        keep_candidate: ReceiverPortCandidate | None = None,
+    ) -> None:
+        for candidate in candidates:
+            if keep_candidate is not None and candidate is keep_candidate:
+                continue
+            serial_port = candidate.probe_serial_port
+            candidate.probe_serial_port = None
+            if serial_port is None:
+                continue
+            try:
+                serial_port.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _should_retry_discovered_session_open(
+        candidate: ReceiverPortCandidate,
+        error: SessionOpenError,
+        attempt: int,
+    ) -> bool:
+        if not candidate.protocol_verified:
+            return False
+        if attempt >= ATTACH_OPEN_RETRY_ATTEMPTS:
+            return False
+
+        error_text = str(error).lower()
+        return any(marker in error_text for marker in OPEN_RETRYABLE_ERROR_MARKERS)
 
     def _detach(self, detail: str) -> None:
         self._stop_receiver_debug_reader(emit_detached=True)
